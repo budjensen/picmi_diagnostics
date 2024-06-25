@@ -1,0 +1,403 @@
+#!/usr/bin/env python3
+import argparse
+
+import numpy as np
+import sys, os, time, copy
+
+from pywarpx import callbacks, fields, libwarpx, particle_containers, picmi
+from mpi4py import MPI as mpi
+
+from picmi_diagnostics.main import Diagnostics1D
+
+comm = mpi.COMM_WORLD
+num_proc = comm.Get_size()
+
+constants = picmi.constants
+
+milli = 1e-3
+micro = 1e-6
+nano = 1e-9
+pico = 1e-12
+
+eV_in_K = 11605.41586
+ng_1Torr = 322.3e20                     # 1 Torr in m^-3
+
+class CapacitiveDischargeExample(object):
+
+    gap             = 30*milli                          # m
+    freq            = 13.56e6                           # Hz
+    voltage         = 0.0                               # V
+    voltage_rf      = 50.0                              # V
+    # ICP_E_field     = 200.0                             # V / m
+    # ICP_freq        = freq                              # Hz
+    # ICP_zmin        = gap / 3                           # m
+    ICP_zmax        = 2 * gap / 3                       # m
+    gas_density     = 30.0*ng_1Torr*milli               # [mTorr]
+    gas_temp        = 300.0                             # [K]
+    m_ion           = 6.63e-26                          # [kg]
+
+    plasma_density  = 3.0e15                            # [m^-3]
+    elec_temp       = 2.5 * eV_in_K                     # [eV] to [K]
+
+    seed_nppc       = 24                                # Number of particles per cell
+
+    iedf_max_eV     = 40                               # Maximum energy for ion energy distribution function [eV]
+    num_bins        = 120                               # Number of bins for ion energy distribution function
+
+    lambda_De       = np.sqrt(constants.ep0 * constants.kb * 2 * elec_temp / (2 * plasma_density * constants.q_e**2))
+    omega_p         = np.sqrt(2 * plasma_density * constants.q_e**2 / (constants.ep0 * constants.m_e))
+
+    dz              = lambda_De / 2                     # Cell size
+    nz              = int(gap / dz)                     # Number of cells
+
+    dt              = 1.0 / (5 * omega_p)              # [s]
+
+    convergence_time = 1.0 / freq                      # Convergence time
+    evolve_time = 0.0# / freq                           # Time to evolve between diagnostic evaluations
+    diag_time = 2 / freq                         # Time of diagnostic evaluations
+
+    time_bw_diag = np.min([0.005 / freq, 100e-12])     # Time between diagnostic evaluations
+
+    num_diag_steps = 5                                 # Number of diagnostic evaluations
+    collections_per_diag_step = 400                    # Number of collections per diagnostic evaluation for time resolved diagnostics
+    interval_diag_times = [0, 0.25, 0.5, 0.75, 1.0]    # Times to evaluate interval diagnostics (as a fraction of the RF period), if turned on
+
+    # Total simulation time in seconds
+    total_time = convergence_time + num_diag_steps * (diag_time + evolve_time)
+
+    # blocking_factor = 32
+
+    # Initial distribution apperance
+    distribution = 'uniform'
+    # distribution = 'maxwellian'
+    # distribution = 'girthy_maxwellian'
+    # distribution = 'lorentzian'
+
+    # Set switches for custom diagnostics
+    # Create switches for custom diagnostics
+    diag_switches = {
+        'ieadfs': {
+            'z_lo': True,
+            'z_hi': True,
+        },
+        'time_averaged': {
+            'N_i': False,
+            'N_e': False,
+            'E_z': False,
+            'phi': False,
+            'W_e': False,
+            'W_i': False,
+            'Jze': False,
+            'Jzi': False,
+            'IPe': False,
+            'IPi': False,
+            'J_d': False
+        },
+        'time_resolved': {
+            'N_i': True,
+            'N_e': True,
+            'E_z': False,
+            'phi': True,
+            'W_e': True,
+            'W_i': True,
+            'Jze': True,
+            'Jzi': True,
+            'IPe': False,
+            'IPi': False,
+            'J_d': True
+        },
+        'interval': {
+            'N_i': True,
+            'N_e': True,
+            'E_z': False,
+            'phi': False,
+            'W_e': False,
+            'W_i': False,
+            'Jze': True,
+            'Jzi': True,
+            'IPe': False,
+            'IPi': False,
+            'J_d': False
+        },
+        'time_resolved_power': {
+            'Pin_vst': False,
+            'CPe_vst': False,
+            'CPi_vst': False,
+            'IPe_vst': False,
+            'IPi_vst': False
+        }
+    }
+
+    def __init__(self, verbose=False):
+        '''Get input parameters for the specific case (n) desired.'''
+        self.verbose = verbose
+
+        # Case specific input parameters
+        self.voltage = f'{self.voltage_rf}*sin(2*pi*{self.freq:.5e}*t)'
+
+        # Calculate timesteps
+        self.convergence_steps = int(self.convergence_time / self.dt)
+        self.max_steps = int(self.total_time / self.dt)
+
+        # Set MCC subcycling steps
+        self.mcc_subcycling_steps = None
+
+        # Initialize ion density array for diagnostics
+        self.ion_density_array = np.zeros(self.nz + 1)
+
+        self.setup_run()
+
+    def setup_run(self):
+        '''Setup simulation components.'''
+
+        #######################################################################
+        # Set geometry and boundary conditions                                #
+        #######################################################################
+
+        self.grid = picmi.Cartesian1DGrid(
+            number_of_cells=[self.nz],
+            # warpx_blocking_factor=self.blocking_factor,
+            lower_bound=[0],
+            upper_bound=[self.gap],
+            lower_boundary_conditions=['dirichlet'],
+            upper_boundary_conditions=['dirichlet'],
+            lower_boundary_conditions_particles=['absorbing'],
+            upper_boundary_conditions_particles=['absorbing'],
+            warpx_potential_lo_z=0.0,
+            warpx_potential_hi_z=self.voltage,
+        )
+
+        #######################################################################
+        # Field setup                                                         #
+        #######################################################################
+
+        # This will use the tridiagonal solver
+        self.solver = picmi.ElectrostaticSolver(grid=self.grid)
+
+        # # Add the applied external field
+        # self.Ex_ext = f'{self.ICP_E_field}*sin(2*pi*{self.ICP_freq:.5e}*t)'
+        # self.Ey_ext = 0
+        # self.Ez_ext = 0
+        # self.applied_field = picmi.AnalyticAppliedField(Ex_expression=f'if(z>{self.ICP_zmin}, if(z<{self.ICP_zmax}, {self.Ex_ext}, 0), 0)',
+        #                                                 Ey_expression=self.Ey_ext,
+        #                                                 Ez_expression=self.Ez_ext)
+
+        #######################################################################
+        # Particle types setup                                                #
+        #######################################################################
+        density_str_Lorentzian = f'{self.plasma_density}/(1+((z-{self.gap/2})/{self.gap/8})**2)'
+        density_str_Maxwellian = f'{self.plasma_density}*exp(-((z-{self.gap/2})**2)/(2*({self.gap/4})**2))'
+        density_str_Maxwellian_sheath = f'if(z<{self.gap/3}, {self.plasma_density}*exp(-((z-{self.gap/3})/{self.gap/6})**2), if( z>{2/3*self.gap}, {self.plasma_density}*exp(-((z-{2*self.gap/3})/{self.gap/6})**2), {self.plasma_density}))'
+
+        if self.distribution == 'uniform':
+            elec_distribution = picmi.UniformDistribution(
+                density=self.plasma_density,
+                rms_velocity=[np.sqrt(constants.kb * self.elec_temp / constants.m_e)]*3,
+            )
+            ion_distribution = picmi.UniformDistribution(
+                density=self.plasma_density,
+                rms_velocity=[np.sqrt(constants.kb * self.gas_temp / self.m_ion)]*3,
+            )
+        elif self.distribution == 'maxwellian':
+            elec_distribution = picmi.AnalyticDistribution(
+                density_expression = density_str_Maxwellian,
+                rms_velocity=[np.sqrt(constants.kb * self.elec_temp / constants.m_e)]*3
+            )
+            ion_distribution = picmi.AnalyticDistribution(
+                    density_expression = density_str_Maxwellian,
+                    rms_velocity=[np.sqrt(constants.kb * self.gas_temp / self.m_ion)]*3
+            )
+        elif self.distribution == 'girthy_maxwellian':
+            elec_distribution = picmi.AnalyticDistribution(
+                density_expression = density_str_Maxwellian_sheath,
+                rms_velocity=[np.sqrt(constants.kb * self.elec_temp / constants.m_e)]*3
+            )
+            ion_distribution = picmi.AnalyticDistribution(
+                    density_expression = density_str_Maxwellian_sheath,
+                    rms_velocity=[np.sqrt(constants.kb * self.gas_temp / self.m_ion)]*3
+            )
+        elif self.distribution == 'lorentzian':
+            elec_distribution = picmi.AnalyticDistribution(
+                density_expression = density_str_Lorentzian,
+                rms_velocity=[np.sqrt(constants.kb * self.elec_temp / constants.m_e)]*3
+            )
+            ion_distribution = picmi.AnalyticDistribution(
+                    density_expression = density_str_Lorentzian,
+                    rms_velocity=[np.sqrt(constants.kb * self.gas_temp / self.m_ion)]*3
+            )
+        else:
+            exit('ERROR: Enter an appropriate string for initial density.')
+
+        self.electrons = picmi.Species(
+            particle_type='electron', name='electrons',
+            initial_distribution=elec_distribution
+        )
+        self.ions = picmi.Species(
+            particle_type='Ar', name='ar_ions',
+            charge='q_e', mass=self.m_ion,
+            initial_distribution=ion_distribution,
+            warpx_save_particles_at_zhi = True,
+            warpx_save_particles_at_zlo = True
+        )
+        #######################################################################
+        # Collision initialization                                            #
+        #######################################################################
+
+        cross_sec_direc = '/home/bj8080/src/warpx-data/MCC_cross_sections/Ar/'
+        electron_colls = picmi.MCCCollisions(
+            name='coll_elec',
+            species=self.electrons,
+            background_density=self.gas_density,
+            background_temperature=self.gas_temp,
+            background_mass=self.ions.mass,
+            ndt=self.mcc_subcycling_steps,
+            scattering_processes={
+                'elastic' : {
+                    'cross_section' : cross_sec_direc+'electron_scattering.dat'
+                },
+                'excitation' : {
+                    'cross_section': cross_sec_direc+'excitation_1.dat',
+                    'energy' : 11.5
+                },
+                'ionization' : {
+                    'cross_section' : cross_sec_direc+'ionization.dat',
+                    'energy' : 15.7596112,
+                    'species' : self.ions
+                },
+            }
+        )
+
+        ion_scattering_processes={
+            'elastic': {'cross_section': cross_sec_direc+'ion_scattering.dat'},
+            'back': {'cross_section': cross_sec_direc+'ion_back_scatter.dat'},
+        }
+        ion_colls = picmi.MCCCollisions(
+            name='coll_ion',
+            species=self.ions,
+            background_density=self.gas_density,
+            background_temperature=self.gas_temp,
+            ndt=self.mcc_subcycling_steps,
+            scattering_processes=ion_scattering_processes
+        )
+
+        #######################################################################
+        # Initialize simulation                                               #
+        #######################################################################
+
+        self.sim = picmi.Simulation(
+            solver=self.solver,
+            time_step_size=self.dt,
+            max_steps=self.max_steps,
+            warpx_collisions=[electron_colls, ion_colls],
+            verbose=self.verbose,
+            warpx_break_signals = 'USR1',
+            warpx_numprocs = [num_proc],
+            warpx_field_gathering_algo = 'energy-conserving'
+        )
+        self.solver.sim = self.sim
+        # self.sim.add_applied_field(self.applied_field)
+
+        self.sim.add_species(
+            self.electrons,
+            layout = picmi.GriddedLayout(
+                n_macroparticle_per_cell=[self.seed_nppc], grid=self.grid
+            )
+        )
+        self.sim.add_species(
+            self.ions,
+            layout = picmi.GriddedLayout(
+                n_macroparticle_per_cell=[self.seed_nppc], grid=self.grid
+            )
+        )
+        self.solver.sim_ext = self.sim.extension
+
+        #######################################################################
+        # Add diagnostics                                                     #
+        #######################################################################
+        const_diag = picmi.FieldDiagnostic(
+            name = 'periodic',
+            grid = self.grid,
+            period = f'{self.max_steps // 40}',
+            data_list = ['phi','rho_ar_ions'],
+            write_dir = './diags',
+            warpx_format = 'openpmd',
+            warpx_file_min_digits = 8
+        )
+        self.sim.add_diagnostic(const_diag)
+
+        checkpoint = picmi.Checkpoint(
+            name = 'checkpt',
+            period = f'{self.convergence_steps}::{self.max_steps // 4}',
+            write_dir = './checkpoints',
+            warpx_file_min_digits = 8,
+            warpx_file_prefix = f'chkpt'
+        )
+        # self.sim.add_diagnostic(checkpoint)
+
+        # Add custom diagnostics
+        self.picmi_diagnostics = Diagnostics1D(self, self.sim.extension, switches=self.diag_switches, interval_times=self.interval_diag_times, ion_spec_names=['ar_ions'], restart_checkpoint=False)
+
+    #######################################################################
+    # Helper Functions                                                    #
+    #######################################################################
+    def _get_rho_ions(self):
+        # deposit the ion density in rho_fp
+        ar_ions_wrapper = particle_containers.ParticleContainerWrapper('ar_ions')
+        ar_ions_wrapper.deposit_charge_density(level=0)
+
+        rho_data = self.rho_wrapper[...]
+        self.ion_density_array += rho_data / constants.q_e / (self.diag_time/self.dt)
+
+    def _check_Ni_center(self):
+        # Get the ion density at the center of the domain
+        center_idx = (self.nz + 1) // 2
+        lower_idx = int(center_idx - 0.05 * self.nz)
+        upper_idx = int(center_idx + 0.05 * self.nz)
+
+        Ni = np.mean(self.ion_density_array[lower_idx:upper_idx + 1])
+        if Ni > self.plasma_density * 2:
+            sys.exit(f'Ion density at center of domain, {Ni:.2e} m^-3, is > {2 * self.plasma_density:.2e} m^-3.\nPlease reduce the time step and start again.')
+        else:
+            print(f'Ion density at center of domain: {Ni:.2e} m^-3')
+            self.ion_density_array = np.zeros(self.nz + 1)
+
+
+    #######################################################################
+    # Run Simulation                                                      #
+    #######################################################################
+    def run_sim(self):
+
+        ### Run until convergence ###
+        #############################
+        self.sim.step(self.convergence_steps - 10)
+        elapsed_steps = self.convergence_steps - 10
+
+        # Set up the particle buffer for diagnostic collection
+        particle_buffer = particle_containers.ParticleBoundaryBufferWrapper()
+        particle_buffer.clear_buffer()
+
+        callbacks.installbeforestep(self.picmi_diagnostics.do_diagnostics)
+
+        # Run the simulation until the end
+        self.sim.step(self.max_steps - elapsed_steps + 10)
+        
+        callbacks.uninstallcallback('beforestep', self.picmi_diagnostics.do_diagnostics)
+
+        # Run 10 extra steps
+        self.sim.step(10)
+
+
+##########################
+### Execute Simulation ###
+##########################
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    '-v', help='Verbose run, default = False', action='store_true'
+)
+args, left = parser.parse_known_args()
+sys.argv = sys.argv[:1]+left
+
+run = CapacitiveDischargeExample(
+    verbose=args.v
+)
+run.run_sim()
