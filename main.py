@@ -969,7 +969,7 @@ class Diagnostics1D:
             # Calculate the ion xy velocity
             vxy = np.sqrt(np.square(ux) + np.square(uy))
             # Calculate angle with a negative sign so that left/right wall ieadfs are on the left/right of an energy vs angle plot
-            angle = np.arctan(vxy / uz) * 90 / np.pi
+            angle = np.arctan(vxy / uz) * 180 / np.pi
 
             # Get the histogram (unnormalized)
             hist, *_ = np.histogram2d(E, angle, bins=[self.iedf_bin_edges, self.iadf_bin_edges], density=False, weights=w/self.dz)
