@@ -500,13 +500,21 @@ class Analysis:
             self.get_avg_ieadf_data()
         self.normalized_ieadfs = {}
         for species in self.avg_ieadf_data:
+
+            # Get the area factor to normalize the IEADF data. To use, divide by the area factor.
+            # Area factor is the sine of the angle multiplied by the square root of the energy
+            area_factor = np.abs(np.sin(self.deg[species] * np.pi / 180))
+            area_factor = np.tile(area_factor, (self.energy[species].size, 1)) # Resize area factor to be size (energy.size, deg.size)
+            for ii in range(len(self.energy[species])):
+                area_factor[ii] = np.sqrt(self.energy[species][ii]) * area_factor[ii] # Multiply each row by the corresponding energy bin to caluclate the area factor
+
             # Check if the species have been separated into left and right wall data
             if isinstance(self.avg_ieadf_data[species], dict):
                 self.normalized_ieadfs[species] = {}
                 for wall in self.avg_ieadf_data[species]:
-                    self.normalized_ieadfs[species][wall] = self.avg_ieadf_data[species][wall] / np.trapz(np.trapz(self.avg_ieadf_data[species][wall], self.energy[species], axis=0), self.deg[species])
+                    self.normalized_ieadfs[species][wall] = self.avg_ieadf_data[species][wall] / np.trapz(np.trapz(self.avg_ieadf_data[species][wall], self.energy[species], axis=0), self.deg[species]) / area_factor
             else:
-                self.normalized_ieadfs[species] = self.avg_ieadf_data[species] / np.trapz(np.trapz(self.avg_ieadf_data[species], self.energy[species], axis=0), self.deg[species])
+                self.normalized_ieadfs[species] = self.avg_ieadf_data[species] / np.trapz(np.trapz(self.avg_ieadf_data[species], self.energy[species], axis=0), self.deg[species]) / area_factor
 
         return self.normalized_ieadfs
     
