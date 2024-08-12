@@ -1232,11 +1232,11 @@ class Diagnostics1D:
 
         # Check if we need to save the electric field for the displacement current
         save_E_last_step = False
-        if any(self.master_diagnostic_dict['time_resolved'].values()) and (next_step - self.diag_start[self.curr_diag_output]) % self.diag_time_resolving_steps == 0:
+        if self.master_diagnostic_dict['time_resolved']['J_d'] and (next_step - self.diag_start[self.curr_diag_output]) % self.diag_time_resolving_steps == 0:
             save_E_last_step = True
-        if any(self.master_diagnostic_dict['time_averaged'].values()) and (next_step >= self.diag_start[self.curr_diag_output]):
+        if self.master_diagnostic_dict['time_averaged']['J_d'] and (next_step >= self.diag_start[self.curr_diag_output]):
             save_E_last_step = True
-        if any(self.master_diagnostic_dict['interval'].values()) and (next_step in self.step_for_in_collection):
+        if self.master_diagnostic_dict['interval']['J_d'] and (next_step in self.step_for_in_collection):
             save_E_last_step = True
 
         # Go through each diagnostic type and determine if we need to update
