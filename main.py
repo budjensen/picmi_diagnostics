@@ -152,6 +152,13 @@ class Diagnostics1D:
         else:
             self.in_slices = np.array(interval_times)
 
+            # Check that times fall in the range [0, 1)
+            self.in_slices = self.in_slices[self.in_slices < 1]
+            self.in_slices = self.in_slices[self.in_slices >= 0]
+
+            # Order times
+            self.in_slices = np.sort(self.in_slices)
+
         self.num_outputs = simulation_obj.num_diag_steps
         self.diag_folder = diag_outfolder
 
@@ -213,6 +220,11 @@ class Diagnostics1D:
             time_resolved_dict = switches['time_resolved']
             interval_dict = switches['interval']
             self.tr_power_dict = switches['time_resolved_power']
+
+        # If the length of the interval times is zero, turn off interval diagnostics
+        if len(self.in_slices) == 0:
+            for key in interval_dict:
+                interval_dict[key] = False
 
         # Correct any power dictionary values
         if self.tr_power_dict['CPe_vst'] or self.tr_power_dict['Pin_vst']:

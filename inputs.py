@@ -31,7 +31,7 @@ class CapacitiveDischargeExample(object):
     # ICP_E_field     = 200.0                             # V / m
     # ICP_freq        = freq                              # Hz
     # ICP_zmin        = gap / 3                           # m
-    ICP_zmax        = 2 * gap / 3                       # m
+    # ICP_zmax        = 2 * gap / 3                       # m
     gas_density     = 30.0*ng_1Torr*milli               # [mTorr]
     gas_temp        = 300.0                             # [K]
     m_ion           = 6.63e-26                          # [kg]
@@ -60,7 +60,7 @@ class CapacitiveDischargeExample(object):
 
     num_diag_steps = 5                                 # Number of diagnostic evaluations
     collections_per_diag_step = 400                    # Number of collections per diagnostic evaluation for time resolved diagnostics
-    interval_diag_times = [0, 0.25, 0.5, 0.75, 1.0]    # Times to evaluate interval diagnostics (as a fraction of the RF period), if turned on
+    interval_diag_times = [0, 0.25, 0.5, 0.75]    # Times to evaluate interval diagnostics (as a fraction of the RF period), if turned on
 
     # Total simulation time in seconds
     total_time = convergence_time + num_diag_steps * (diag_time + evolve_time)
