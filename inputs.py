@@ -7,7 +7,7 @@ import sys, os, time, copy
 from pywarpx import callbacks, fields, libwarpx, particle_containers, picmi
 from mpi4py import MPI as mpi
 
-from picmi_diagnostics.main import Diagnostics1D
+from main import Diagnostics1D
 
 comm = mpi.COMM_WORLD
 num_proc = comm.Get_size()
@@ -39,7 +39,7 @@ class CapacitiveDischargeExample(object):
     plasma_density  = 3.0e15                            # [m^-3]
     elec_temp       = 2.5 * eV_in_K                     # [eV] to [K]
 
-    seed_nppc       = 24                                # Number of particles per cell
+    seed_nppc       = 64                                # Number of particles per cell
 
     iedf_max_eV     = 40                               # Maximum energy for ion energy distribution function [eV]
     num_bins        = 120                               # Number of bins for ion energy distribution function
@@ -52,13 +52,13 @@ class CapacitiveDischargeExample(object):
 
     dt              = 1.0 / (5 * omega_p)              # [s]
 
-    convergence_time = 1.0 / freq                      # Convergence time
+    convergence_time = 5 / freq                      # Convergence time
     evolve_time = 0.0# / freq                           # Time to evolve between diagnostic evaluations
-    diag_time = 2 / freq                         # Time of diagnostic evaluations
+    diag_time = 10 / freq                         # Time of diagnostic evaluations
 
     time_bw_diag = np.min([0.005 / freq, 100e-12])     # Time between diagnostic evaluations
 
-    num_diag_steps = 5                                 # Number of diagnostic evaluations
+    num_diag_steps = 2                                 # Number of diagnostic evaluations
     collections_per_diag_step = 400                    # Number of collections per diagnostic evaluation for time resolved diagnostics
     interval_diag_times = [0, 0.25, 0.5, 0.75]    # Times to evaluate interval diagnostics (as a fraction of the RF period), if turned on
 
@@ -77,9 +77,10 @@ class CapacitiveDischargeExample(object):
     # Create switches for custom diagnostics
     diag_switches = {
         'ieadfs': {
-            'z_lo': True,
-            'z_hi': True,
+            'z_lo': False,
+            'z_hi': False,
         },
+        'rate_ioniz' : True,
         'time_averaged': {
             'N_i': False,
             'N_e': False,
@@ -108,13 +109,13 @@ class CapacitiveDischargeExample(object):
         },
         'interval': {
             'N_i': True,
-            'N_e': True,
+            'N_e': False,
             'E_z': False,
             'phi': False,
             'W_e': False,
             'W_i': False,
-            'Jze': True,
-            'Jzi': True,
+            'Jze': False,
+            'Jzi': False,
             'IPe': False,
             'IPi': False,
             'J_d': False
@@ -237,7 +238,9 @@ class CapacitiveDischargeExample(object):
             charge='q_e', mass=self.m_ion,
             initial_distribution=ion_distribution,
             warpx_save_particles_at_zhi = True,
-            warpx_save_particles_at_zlo = True
+            warpx_save_particles_at_zlo = True,
+            warpx_add_real_attributes = {'orig_z': f'z',
+                                         'orig_t': f't'}
         )
         #######################################################################
         # Collision initialization                                            #

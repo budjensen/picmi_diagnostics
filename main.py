@@ -62,6 +62,7 @@ class Diagnostics1D:
                 'z_lo': True,
                 'z_hi': True,
             },
+            'rate_ioniz' : False,
             'time_averaged': {
                 'N_i': False,
                 'N_e': False,
@@ -110,6 +111,68 @@ class Diagnostics1D:
             }
         }
         '''
+        # Set up diagnostic switches
+        if switches is None:
+            ieadfs = {
+                'z_lo': True,
+                'z_hi': True,
+            }
+            self.Riz_switch = False
+            time_averaged_dict = {
+                'N_i': False,
+                'N_e': False,
+                'E_z': False,
+                'phi': False,
+                'W_e': False,
+                'W_i': False,
+                'Jze': False,
+                'Jzi': False,
+                'IPe': False,
+                'IPi': False,
+                'J_d': False
+            }
+            time_resolved_dict = {
+                'N_i': True,
+                'N_e': True,
+                'E_z': False,
+                'phi': True,
+                'W_e': True,
+                'W_i': True,
+                'Jze': True,
+                'Jzi': True,
+                'IPe': False,
+                'IPi': False,
+                'J_d': True
+            }
+            interval_dict = {
+                'N_i': False,
+                'N_e': False,
+                'E_z': False,
+                'phi': False,
+                'W_e': False,
+                'W_i': False,
+                'Jze': False,
+                'Jzi': False,
+                'IPe': False,
+                'IPi': False,
+                'J_d': False
+            }
+            self.tr_power_dict = {
+                'Pin_vst': False,
+                'CPe_vst': False,
+                'CPi_vst': False,
+                'IPe_vst': False,
+                'IPi_vst': False
+            }
+        else:
+            ieadfs = switches['ieadfs']
+            self.Riz_switch = switches['rate_ioniz']
+            time_averaged_dict = switches['time_averaged']
+            time_resolved_dict = switches['time_resolved']
+            interval_dict = switches['interval']
+            self.tr_power_dict = switches['time_resolved_power']
+
+        # Initialize simulation
         simulation_obj.sim.initialize_inputs()
         simulation_obj.sim.initialize_warpx()
 
@@ -159,72 +222,13 @@ class Diagnostics1D:
             # Order times
             self.in_slices = np.sort(self.in_slices)
 
+            # If length of the interval times is zero, turn off interval diagnostics
+            if len(self.in_slices) == 0:
+                for key in interval_dict:
+                    interval_dict[key] = False
+
         self.num_outputs = simulation_obj.num_diag_steps
         self.diag_folder = diag_outfolder
-
-        # Diagnostic dictionaries
-        if switches is None:
-            ieadfs = {
-                'z_lo': True,
-                'z_hi': True,
-            }
-            time_averaged_dict = {
-                'N_i': False,
-                'N_e': False,
-                'E_z': False,
-                'phi': False,
-                'W_e': False,
-                'W_i': False,
-                'Jze': False,
-                'Jzi': False,
-                'IPe': False,
-                'IPi': False,
-                'J_d': False
-            }
-            time_resolved_dict = {
-                'N_i': True,
-                'N_e': True,
-                'E_z': False,
-                'phi': True,
-                'W_e': True,
-                'W_i': True,
-                'Jze': True,
-                'Jzi': True,
-                'IPe': False,
-                'IPi': False,
-                'J_d': True
-            }
-            interval_dict = {
-                'N_i': False,
-                'N_e': False,
-                'E_z': False,
-                'phi': False,
-                'W_e': False,
-                'W_i': False,
-                'Jze': False,
-                'Jzi': False,
-                'IPe': False,
-                'IPi': False,
-                'J_d': False
-            }
-            self.tr_power_dict = {
-                'Pin_vst': False,
-                'CPe_vst': False,
-                'CPi_vst': False,
-                'IPe_vst': False,
-                'IPi_vst': False
-            }
-        else:
-            ieadfs = switches['ieadfs']
-            time_averaged_dict = switches['time_averaged']
-            time_resolved_dict = switches['time_resolved']
-            interval_dict = switches['interval']
-            self.tr_power_dict = switches['time_resolved_power']
-
-        # If the length of the interval times is zero, turn off interval diagnostics
-        if len(self.in_slices) == 0:
-            for key in interval_dict:
-                interval_dict[key] = False
 
         # Correct any power dictionary values
         if self.tr_power_dict['CPe_vst'] or self.tr_power_dict['Pin_vst']:
@@ -265,6 +269,8 @@ class Diagnostics1D:
             self._get_interval_collection_steps()
         else:
             self.output_next_in_coll = -1
+        if self.Riz_switch:
+            self._setup_Riz_diag(simulation_obj)
         self._setup_diagnostic_arrays(simulation_obj)
 
         # Save settings to file
@@ -306,6 +312,12 @@ class Diagnostics1D:
             for key, value in self.master_diagnostic_dict['ieadfs'].items():
                 if value:
                     self.ieadf_by_species[species][key] = np.zeros((len(self.iedf_bin_centers), len(self.iadf_bin_centers)))
+
+        # Ionization rate arrays
+        if self.Riz_switch:
+            self.Riz_by_species = {}
+            for species in self.species_names[1:]:
+                self.Riz_by_species[species] = np.zeros((self.Riz_nt, self.nz))
 
         # Time resolved arrays
         self.tr_N_e = None
@@ -391,6 +403,54 @@ class Diagnostics1D:
         self.phi = np.zeros(self.nz + 1)
         self.E_last_step = np.zeros(self.nz + 1)
     
+    def _setup_Riz_diag(self, simulation_obj: CapacitiveDischargeExample):
+        '''
+        Set up diagnostics for ionization rate
+        
+        Parameters
+        ----------
+        simulation_obj: CapacitiveDischargeExample
+            Object of the main simulation class
+        '''
+        # Calculate the unit size for time and space discretization
+        self.Riz_dz = self.dz
+
+        # Choose the time step to be either dt, or rf_period/nz
+        if int(self.rf_period / self.dt) < self.nz:
+            self.Riz_nt = int(self.rf_period / self.dt)
+        else:
+            self.Riz_nt = self.nz
+
+        self.R_inoiz_dt = self.rf_period / self.Riz_nt
+
+        # Set up the ionization rate directory
+        if comm.rank != 0:
+            return
+
+        # Make a diagnostics directory
+        if not os.path.exists(self.diag_folder):
+            os.makedirs(self.diag_folder)
+
+        # Make an ionization rate directory for each ion species
+        self.Riz_dir_by_species = {}
+        for species in self.species_names[1:]:
+            self.Riz_dir_by_species[species] = os.path.join(self.diag_folder, f'r_ioniz_{species}')
+            if not os.path.exists(self.Riz_dir_by_species[species]):
+                os.makedirs(self.Riz_dir_by_species[species])
+
+        # Save the ionization rate grid
+        Riz_z_edges = np.linspace(0, simulation_obj.gap, self.nz + 1)
+        Riz_time_edges = np.linspace(0, 1, self.Riz_nt + 1)
+        Riz_z_centers = np.multiply(Riz_z_edges[:-1] + Riz_z_edges[1:], 0.5)
+        Riz_time_centers = np.multiply(Riz_time_edges[:-1] + Riz_time_edges[1:], 0.5)
+
+        for species in self.species_names[1:]:
+            # Check if file exists
+            self.check_file(f'{self.Riz_dir_by_species[species]}/bins_t.npy')
+            self.check_file(f'{self.Riz_dir_by_species[species]}/bins_z.npy')
+            np.save(f'{self.Riz_dir_by_species[species]}/bins_z.npy', Riz_z_centers)
+            np.save(f'{self.Riz_dir_by_species[species]}/bins_t.npy', Riz_time_centers)
+
     def _get_ICP_field(self, simulation_obj: CapacitiveDischargeExample):
         '''
         Gets the ICP field from the input file
@@ -1006,6 +1066,66 @@ class Diagnostics1D:
         boundary_wrapper = particle_containers.ParticleBoundaryBufferWrapper()
         boundary_wrapper.clear_buffer()
 
+    def calculate_Riz(self):
+        '''
+        Calculate the ionization rate for each species. Make sure to call this
+        function before clear_ieadf_buffers() to ensure that the ionization
+        rate considers any particles that exited the system.
+
+        '''
+        for spec in self.species_names[1:]:
+            # Set up wrappers
+            bd_wrapper = particle_containers.ParticleBoundaryBufferWrapper()
+            sp_wrapper = particle_containers.ParticleContainerWrapper(spec)
+
+            # Get boundary particle data
+            bd_t = {}
+            bd_z = {}
+            bd_w = {}
+            for boundary in ['z_lo', 'z_hi']:
+                try:
+                    bd_t[boundary] = np.concatenate(bd_wrapper.get_particle_boundary_buffer(spec, boundary, 'orig_t', 0))
+                    bd_z[boundary] = np.concatenate(bd_wrapper.get_particle_boundary_buffer(spec, boundary, 'orig_z', 0))
+                    bd_w[boundary] = np.concatenate(bd_wrapper.get_particle_boundary_buffer(spec, boundary, 'w', 0))
+                except ValueError:
+                    bd_t[boundary] = np.array([])
+                    bd_z[boundary] = np.array([])
+                    bd_w[boundary] = np.array([])
+
+            # Get bulk particle data
+            try:
+                sp_t = np.concatenate(sp_wrapper.get_particle_real_arrays('orig_t', 0))
+                sp_z = np.concatenate(sp_wrapper.get_particle_real_arrays('orig_z', 0))
+                sp_w = np.concatenate(sp_wrapper.get_particle_weight())
+            except ValueError:
+                sp_t = np.array([])
+                sp_z = np.array([])
+                sp_w = np.array([])
+
+            # Make the current time the end of the time window
+            t_end = self.sim_ext.warpx.gett_new(lev=0)
+            t_begin = t_end - self.diag_time
+
+            # Now, make a histogram of the ionization rate
+            for z, t, w in zip(np.concatenate([bd_z['z_lo'], bd_z['z_hi'], sp_z]), np.concatenate([bd_t['z_lo'], bd_t['z_hi'], sp_t]), np.concatenate([bd_w['z_lo'], bd_w['z_hi'], sp_w])):
+                # Check if the particle is in the time window
+                if t < t_begin:
+                    continue
+
+                # Get the cell index
+                z_idx = int(z / self.dz)
+
+                # Get the time index
+                t_idx = int(t / self.dt) % self.Riz_nt
+
+                # Increment the ionization rate
+                self.Riz_by_species[spec][t_idx][z_idx] += w
+
+            # Sum the ionization rate histograms from all processors
+            Riz_all = np.zeros_like(self.Riz_by_species[spec])
+            comm.Allreduce(self.Riz_by_species[spec], Riz_all, op=mpi.SUM)
+            self.Riz_by_species[spec] = Riz_all
+
     ###########################################################################
     # Simulation Functions                                                    #
     ###########################################################################
@@ -1359,7 +1479,11 @@ class Diagnostics1D:
                     for key, value in self.master_diagnostic_dict['ieadfs'].items():
                         if value:
                             self.calculate_ieadf(species, key)
-            
+
+            # Save ionization rate histogram for each species, if necessary
+            if self.Riz_switch:
+                self.calculate_Riz()
+
             # Clear ieadf buffers
             self.clear_ieadf_buffers()
 
@@ -1395,7 +1519,7 @@ class Diagnostics1D:
 
                         while int(next_collection_time[-1] / self.dt) < self.diag_start[self.curr_diag_output]:
                             next_collection_time += self.in_period
-                        
+
                         # Convert times to steps
                         self.step_for_in_collection = np.round(next_collection_time / self.dt).astype(int)
 
@@ -1410,7 +1534,7 @@ class Diagnostics1D:
                     # If all of the collection steps fall after the last diagnostic stop step
                     if all(self.step_for_in_collection > self.diag_stop[-1]):
                         turn_off_in = True
-                
+
                 if self.curr_diag_output not in next_output:
                     turn_off_in = True
                 # Save the next diagnostic output that the next interval output is saved at
@@ -1420,7 +1544,7 @@ class Diagnostics1D:
                 # Turn interval diagnostics off for the rest of the diagnostic interval
                 for key in self.master_diagnostic_dict['interval']:
                     self.master_diagnostic_dict['interval'][key] = False
-        
+
         if turn_off_in:
             # Turn interval diagnostics off for the rest of the diagnostic interval
             for key in self.master_diagnostic_dict['interval']:
@@ -1438,6 +1562,11 @@ class Diagnostics1D:
             for key, value in self.master_diagnostic_dict['ieadfs'].items():
                 if value:
                     self.ieadf_by_species[species][key] = np.zeros((len(self.iedf_bin_centers), len(self.iadf_bin_centers)))
+
+        # Ionization rate array
+        if self.Riz_switch:
+            for species in self.species_names[1:]:
+                self.Riz_by_species[species] = np.zeros((self.Riz_nt, self.nz))
 
         # Time resolved arrays
         self.tr_N_e = None
@@ -1500,6 +1629,12 @@ class Diagnostics1D:
             '''
             # Grab species names
             species = self.species_names
+
+            # Multiply by the time factor to get ionization rate
+            if self.Riz_switch:
+                factor = 1.0 / (self.diag_time * self.dz)
+                for spec in species[1:]:
+                    self.Riz_by_species[spec] *= factor
 
             # Grab temporary dictionary for time resolved diagnostics
             active = self.master_diagnostic_dict['time_resolved']
@@ -1867,6 +2002,11 @@ class Diagnostics1D:
                     elif key == 'z_hi':
                         prefix = 'rw'
                     np.save(os.path.join(self.ieadf_dir_by_species[species], f'{prefix}_{step:04d}.npy'), self.ieadf_by_species[species][key])
+
+        # Save ionization rate histograms
+        if self.Riz_switch:
+            for species in self.species_names[1:]:
+                np.save(os.path.join(self.Riz_dir_by_species[species], f'Riz_{step:04d}.npy'), self.Riz_by_species[species])
 
         # Save time resolved diagnostics
         active = self.master_diagnostic_dict['time_resolved']

@@ -18,6 +18,7 @@ class Analysis:
         self.dir.sort()
 
         self.ieadf_bool = False
+        self.Riz_bool = False
         self.in_bool = False
         self.tr_bool = False
         self.time_averaged_bool = False
@@ -104,6 +105,68 @@ class Analysis:
                     # Initialize the right wall ieadf data dictionary
                     self.ieadf_data_lists[key]['rw'] = []
 
+        # Check if any of the elements in self.dir start with r_ioniz
+        if any(dir.startswith('r_ioniz') for dir in self.dir):
+            print('Ionization rate data found')
+            self.Riz_bool = True
+
+            # Save the r_ioniz directories (there will be one for each ion species)
+            temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('r_ioniz')]
+            temp.sort()
+            self.Riz_dir = {}
+            for species_dir in temp:
+                # Save the species name as the dictionary key and the directory as the value
+                self.Riz_dir[species_dir.split('r_ioniz_')[-1]] = species_dir
+            if len(self.Riz_dir) > 1:
+                print(f' - {len(self.Riz_dir)} Ionization rate directories found for species: {", ".join(self.Riz_dir.keys())}')
+            else:
+                print(f' - {len(self.Riz_dir)} Ionization rate directory found for species: {", ".join(self.Riz_dir.keys())}')
+
+            # Initialize the z and time bin dictionaries
+            self.Riz_z = {}
+            self.Riz_z_edges = {}
+            self.Riz_t = {}
+            self.Riz_t_edges = {}
+
+            # Initialize the collection dictionary
+            self.Riz_colls = {}
+
+            # Initialize the data dictionary
+            self.Riz_data_lists = {}
+
+            # Check if the ieadf directory has bins_z.npy and bins_t.npy
+            for key, directory in self.Riz_dir.items():
+                print(f' - Looking into directory for species: {key}')
+                Riz_dir = os.listdir(directory)
+                Riz_dir.sort()
+                if 'bins_z.npy' in Riz_dir:
+                    self.Riz_z[key] = np.load(directory + '/bins_z.npy')
+                    # Positions are cell midpoints, and we need to get the edges for plotting with plt.pcolormesh
+                    self.Riz_z_edges[key]       = np.zeros(self.Riz_z[key].size + 1)
+                    self.Riz_z_edges[key][0]    = self.Riz_z[key][0] - (self.Riz_z[key][1] - self.Riz_z[key][0])/2
+                    self.Riz_z_edges[key][1:-1] = (self.Riz_z[key][1:] + self.Riz_z[key][:-1])/2
+                    self.Riz_z_edges[key][-1]   = self.Riz_z[key][-1] + (self.Riz_z[key][-1] - self.Riz_z[key][-2])/2
+                else:
+                    print(f'   > Position bins not found')
+                if 'bins_t.npy' in Riz_dir:
+                    self.Riz_t[key] = np.load(directory + '/bins_t.npy')
+                    # Times are cell midpoints, and we need to get the edges for plotting with plt.pcolormesh
+                    self.Riz_t_edges[key]       = np.zeros(self.Riz_t[key].size + 1)
+                    self.Riz_t_edges[key][0]    = self.Riz_t[key][0] - (self.Riz_t[key][1] - self.Riz_t[key][0])/2
+                    self.Riz_t_edges[key][1:-1] = (self.Riz_t[key][1:] + self.Riz_t[key][:-1])/2
+                    self.Riz_t_edges[key][-1]   = self.Riz_t[key][-1] + (self.Riz_t[key][-1] - self.Riz_t[key][-2])/2
+                else:
+                    print(f'   > Time bins not found')
+
+                self.Riz_data_lists[key] = {}
+                # Print collected data
+                if any(file.startswith('Riz') for file in Riz_dir):
+                    self.Riz_colls[key] = [f'{directory}/{file}' for file in Riz_dir if file.startswith('Riz')]
+                    self.Riz_colls[key].sort()
+                    print(f'   > {len(self.Riz_colls[key])} data collections')
+                    # Initialize the data dictionary
+                    self.Riz_data_lists[key] = []
+
         if any(dir.startswith('interval') for dir in self.dir):
             print('Interval data found')
             self.in_bool = True
@@ -186,6 +249,204 @@ class Analysis:
         if self.in_bool or self.tr_bool or self.time_averaged_bool:
             self.cells = np.load(f'{self.directory}/cells.npy')
             self.nodes = np.load(f'{self.directory}/nodes.npy')
+
+    def load_Riz_data_lists(self, species: str = None):
+        '''
+        Load the ionization rate data
+        
+        Parameters
+        ----------
+        species : str, default=None
+            The species to load
+
+        Returns
+        -------
+        Riz_data_lists : dict[dict[list[np.ndarray]]]
+            The ionization rate data organized like
+            Riz_data_lists[species][wall][collection]
+        '''
+        if not self.Riz_bool:
+            raise ValueError('Ionization rate data not found')
+        if species is not None:
+            if species not in self.Riz_dir:
+                raise ValueError(f'Species must be one of: {", ".join(self.Riz_dir.keys())}')
+            # Add data
+            self.Riz_data_lists[species] = [np.load(coll) for coll in self.Riz_colls[species]]
+        else:
+            for spec in self.Riz_dir:
+                self.Riz_data_lists[spec] = [np.load(coll) for coll in self.Riz_colls[spec]]
+
+        return self.Riz_data_lists
+
+    def get_avg_Riz_data(self):
+        '''
+        Get the average ionization rate data over all collections.
+    
+        Returns
+        -------
+        avg_Riz_data : dict[np.ndarray]
+            The averaged ionization rate data for each species.
+        '''
+        if not self.Riz_bool:
+            raise ValueError('Ionization rate data not found')
+        # Load the ieadf data
+        self.load_Riz_data_lists()
+
+        # Initialize the dictionary to store the average data
+        self.avg_Riz_data = {}
+        for species in self.Riz_data_lists:
+            temp_array_list = []
+            for array in self.Riz_data_lists[species]:
+                temp_array_list.append(array)
+            self.avg_Riz_data[species] = np.mean(temp_array_list, axis=0)
+
+        return self.avg_Riz_data
+
+    def get_Riz_vs_z_data_lists(self):
+        '''
+        Gets ionization rate versus z data from the full ionization rate
+        data.
+
+        Returns
+        -------
+        Riz_vs_z_data_lists : dict[list[np.ndarray]]
+            The ionization rate data integrated over time
+        '''
+        if not self.Riz_bool:
+            raise ValueError('Ionization rate data not found')
+        self.load_Riz_data_lists()
+
+        self.Riz_vs_z_data_lists = {}
+        for species in self.Riz_data_lists:
+            self.Riz_vs_z_data_lists[species] = []
+            for array in self.Riz_data_lists[species]:
+                self.Riz_vs_z_data_lists[species].append(np.sum(array, axis=0))
+        return self.Riz_vs_z_data_lists
+
+    def get_avg_Riz_vs_z_data(self):
+        '''
+        Get the average ionization rate versus z data over all collections.
+        
+        Returns
+        -------
+        avg_Riz_vs_z_data : dict[np.ndarray]
+            The Riz vs position data for each species.
+        '''
+        if not self.Riz_bool:
+            raise ValueError('Ionization rate data not found')
+        if not hasattr(self, 'Riz_vs_z_data_lists'):
+            self.get_Riz_vs_z_data_lists()
+        
+        # Initialize the dictionary to store the average data
+        self.avg_Riz_vs_z_data = {}
+        for species in self.Riz_vs_z_data_lists:
+            self.avg_Riz_vs_z_data[species] = {}
+            for wall in self.Riz_vs_z_data_lists[species]:
+                temp_array_list = []
+                for array in self.Riz_vs_z_data_lists[species]:
+                    temp_array_list.append(array)
+                self.avg_Riz_vs_z_data[species] = np.mean(temp_array_list, axis=0)
+        return self.avg_Riz_vs_z_data
+
+    def plot_avg_Riz_vs_z(self,
+                          species: str = None,
+                          dpi=150):
+        '''
+        Plot the collection-averaged ionization rate vs position data
+
+        Parameters
+        ----------
+        species : str, default=None
+            The species to plot. If None, plots all species on a single axis
+        dpi : int
+            The DPI of the plot
+        
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+            The figure object
+        ax : matplotlib.axes.Axes
+            The axes object
+        '''
+        if not self.Riz_bool:
+            raise ValueError('Ionization rate data not found')
+        if not hasattr(self, 'avg_Riz_vs_z_data'):
+            self.get_avg_Riz_vs_z_data()
+        if species is not None and species not in self.avg_Riz_vs_z_data:
+            raise ValueError(f'Species must be one of: {", ".join(self.avg_Riz_vs_z_data.keys())}')
+
+        Riz = self.avg_Riz_vs_z_data
+        if species is None:
+            fig, ax = plt.subplots(1,1, dpi=dpi)
+            for spec in Riz:
+                ax.plot(self.Riz_z[spec], Riz[spec], label = spec)
+                ax.set_ylim(0, np.max(Riz[spec])*1.05)
+            ax.set_xlabel('Position [m]')
+            ax.set_ylabel('$R_i$ [m$^{-3}$s$^{-1}$]')
+            ax.set_title('Ionization Rate')
+            ax.legend()
+            ax.margins(x=0)
+        else:
+            fig, ax = plt.subplots(1,1, dpi=dpi)
+            ax.plot(self.energy[species], Riz[species], label = species)
+            ax.set_ylim(0, np.max(Riz[species])*1.05)
+            ax.set_xlabel('Position [m]')
+            ax.set_ylabel('$R_i$ [m$^{-3}$s$^{-1}$]')
+            ax.set_title('Ionization Rate')
+            ax.legend()
+            ax.margins(x=0)
+        return fig, ax
+
+    def plot_avg_Riz(self,
+                     species: str = None,
+                     dpi=150):
+        '''
+        Plot the collection-averaged ionization rate data
+
+        Parameters
+        ----------
+        species : str, default=None
+            The species to plot. If None, plots all species on separate figs
+        dpi : int
+            The DPI of the plot
+        
+        Returns
+        -------
+        fig : matplotlib.figure.Figure or list[matplotlib.figure.Figure]
+            The figure object
+        ax : matplotlib.axes.Axes or list[matplotlib.axes.Axes]
+            The axes object
+        '''
+        if not self.Riz_bool:
+            raise ValueError('Ionization rate data not found')
+        if not hasattr(self, 'avg_Riz_data'):
+            self.get_avg_Riz_data()
+        if species is not None and species not in self.avg_Riz_data:
+            raise ValueError(f'Species must be one of: {", ".join(self.avg_Riz_data.keys())}')
+
+        else:
+            Riz = self.avg_Riz_data
+        if species is None:
+            figs = []
+            axs = []
+            for spec in Riz:
+                fig, ax = plt.subplots(1,1, dpi=dpi)
+                figs.append(fig)
+                axs.append(ax)
+                cbar = ax.pcolormesh(self.Riz_z_edges[spec], self.Riz_t_edges[spec], Riz[spec], shading='auto')
+                fig.colorbar(cbar, ax=ax, label='$R_i$ [m$^{-3}$s$^{-1}$]')
+                ax.set_xlabel('Position [m]')
+                ax.set_ylabel(r'Time in RF Period [t/$\tau_{RF}$]')
+                ax.set_title(f'{spec} Ionization Rate')
+            return figs, axs
+        else:
+            fig, ax = plt.subplots(1,1, dpi=dpi)
+            cbar = ax.pcolormesh(self.Riz_z_edges[species], self.Riz_t_edges[species], Riz[species], shading='auto')
+            fig.colorbar(cbar, ax=ax, label='$R_i$ [m$^{-3}$s$^{-1}$]')
+            ax.set_xlabel('Position [m]')
+            ax.set_ylabel(r'Time in RF Period [t/$\tau_{RF}$]')
+            ax.set_title(f'{species} Ionization Rate')
+            return fig, ax
 
     def load_ieadf_data_lists(self, species: str = None):
         '''
