@@ -36,7 +36,7 @@ class CapacitiveDischargeExample(object):
     gas_temp        = 300.0                             # [K]
     m_ion           = 6.63e-26                          # [kg]
 
-    plasma_density  = 3.0e15                            # [m^-3]
+    plasma_density  = 9.0e14                            # [m^-3]
     elec_temp       = 2.5 * eV_in_K                     # [eV] to [K]
 
     seed_nppc       = 64                                # Number of particles per cell
@@ -61,6 +61,7 @@ class CapacitiveDischargeExample(object):
     num_diag_steps = 2                                 # Number of diagnostic evaluations
     collections_per_diag_step = 400                    # Number of collections per diagnostic evaluation for time resolved diagnostics
     interval_diag_times = [0, 0.25, 0.5, 0.75]    # Times to evaluate interval diagnostics (as a fraction of the RF period), if turned on
+    Riz_collection_time = 80 / freq                      # Time to run ionization rate diagnostics
 
     # Total simulation time in seconds
     total_time = convergence_time + num_diag_steps * (diag_time + evolve_time)
@@ -138,6 +139,7 @@ class CapacitiveDischargeExample(object):
 
         # Calculate timesteps
         self.convergence_steps = int(self.convergence_time / self.dt)
+        self.evolve_steps = int(self.evolve_time / self.dt)
         self.max_steps = int(self.total_time / self.dt)
 
         # Set MCC subcycling steps
@@ -372,8 +374,8 @@ class CapacitiveDischargeExample(object):
 
         ### Run until convergence ###
         #############################
-        self.sim.step(self.convergence_steps - 10)
-        elapsed_steps = self.convergence_steps - 10
+        self.sim.step(self.convergence_steps - self.evolve_steps - 10)
+        elapsed_steps = self.convergence_steps - self.evolve_steps - 10
 
         # Set up the particle buffer for diagnostic collection
         particle_buffer = particle_containers.ParticleBoundaryBufferWrapper()

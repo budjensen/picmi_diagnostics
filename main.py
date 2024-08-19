@@ -412,6 +412,33 @@ class Diagnostics1D:
         simulation_obj: CapacitiveDischargeExample
             Object of the main simulation class
         '''
+        # Import simulation parameters
+        self.Riz_collection_time = simulation_obj.Riz_collection_time
+
+        # Set up ionization rate collection time
+        if self.Riz_collection_time <= 0:
+            raise ValueError('Riz_collection_time must be greater than zero.')
+
+        self.diag_cycle_time = self.diag_time + self.evolve_time
+
+        # Calculate number of diagnostic collections per Riz collection
+        self.diag_collections_per_Riz = self.Riz_collection_time // self.diag_cycle_time
+
+        if self.diag_collections_per_Riz == 0:
+            self.diag_collections_per_Riz = 1
+            self.Riz_collection_time = self.diag_cycle_time
+        elif self.diag_collections_per_Riz > self.num_outputs:
+            self.diag_collections_per_Riz = self.num_outputs
+            self.Riz_collection_time = self.diag_collections_per_Riz * self.diag_cycle_time
+        else:
+            self.Riz_collection_time = self.diag_collections_per_Riz * self.diag_cycle_time
+
+        # Initialize variables/counters for ionization rate collection
+        self.Riz_diag_counter = 0
+        self.Riz_max_output = self.num_outputs // self.diag_collections_per_Riz
+        self.Riz_current_output = 1
+        self.Riz_start_time = self.convergence_time
+
         # Calculate the unit size for time and space discretization
         self.Riz_dz = self.dz
 
@@ -1063,20 +1090,18 @@ class Diagnostics1D:
         '''
         Clears the buffers for the ion energy angular distribution function.
         '''
+        # Clear the boundary buffers
         boundary_wrapper = particle_containers.ParticleBoundaryBufferWrapper()
         boundary_wrapper.clear_buffer()
 
-    def calculate_Riz(self):
+    def add_buff_Riz(self):
         '''
-        Calculate the ionization rate for each species. Make sure to call this
-        function before clear_ieadf_buffers() to ensure that the ionization
-        rate considers any particles that exited the system.
-
+        Adds the boundary buffers to the ionization rate. Use this if clearing
+        the boundary buffers before calculating the ionization rate.
         '''
         for spec in self.species_names[1:]:
             # Set up wrappers
             bd_wrapper = particle_containers.ParticleBoundaryBufferWrapper()
-            sp_wrapper = particle_containers.ParticleContainerWrapper(spec)
 
             # Get boundary particle data
             bd_t = {}
@@ -1090,24 +1115,13 @@ class Diagnostics1D:
                 except ValueError:
                     bd_t[boundary] = np.array([])
                     bd_z[boundary] = np.array([])
-                    bd_w[boundary] = np.array([])
-
-            # Get bulk particle data
-            try:
-                sp_t = np.concatenate(sp_wrapper.get_particle_real_arrays('orig_t', 0))
-                sp_z = np.concatenate(sp_wrapper.get_particle_real_arrays('orig_z', 0))
-                sp_w = np.concatenate(sp_wrapper.get_particle_weight())
-            except ValueError:
-                sp_t = np.array([])
-                sp_z = np.array([])
-                sp_w = np.array([])
+                    bd_w[boundary] = np.array([])        
 
             # Make the current time the end of the time window
-            t_end = self.sim_ext.warpx.gett_new(lev=0)
-            t_begin = t_end - self.diag_time
+            t_begin = self.Riz_start_time + self.diag_cycle_time * self.Riz_diag_counter
 
             # Now, make a histogram of the ionization rate
-            for z, t, w in zip(np.concatenate([bd_z['z_lo'], bd_z['z_hi'], sp_z]), np.concatenate([bd_t['z_lo'], bd_t['z_hi'], sp_t]), np.concatenate([bd_w['z_lo'], bd_w['z_hi'], sp_w])):
+            for z, t, w in zip(np.concatenate([bd_z['z_lo'], bd_z['z_hi']]), np.concatenate([bd_t['z_lo'], bd_t['z_hi']]), np.concatenate([bd_w['z_lo'], bd_w['z_hi']])):
                 # Check if the particle is in the time window
                 if t < t_begin:
                     continue
@@ -1121,10 +1135,50 @@ class Diagnostics1D:
                 # Increment the ionization rate
                 self.Riz_by_species[spec][t_idx][z_idx] += w
 
+    def add_bulk_Riz(self):
+        '''
+        Calculate the ionization rate for each bulk species.
+        '''
+        for spec in self.species_names[1:]:
+            # Set up wrappers
+            sp_wrapper = particle_containers.ParticleContainerWrapper(spec)
+
+            # Get bulk particle data
+            try:
+                bk_t = np.concatenate(sp_wrapper.get_particle_real_arrays('orig_t', 0))
+                bk_z = np.concatenate(sp_wrapper.get_particle_real_arrays('orig_z', 0))
+                bk_w = np.concatenate(sp_wrapper.get_particle_weight())
+            except ValueError:
+                bk_t = np.array([])
+                bk_z = np.array([])
+                bk_w = np.array([])
+
+            t_begin = self.Riz_start_time + self.diag_cycle_time * self.Riz_diag_counter
+
+            # Now, make a histogram of the ionization rate
+            for z, t, w in zip(bk_z, bk_t, bk_w):
+                # Check if the particle is in the time window
+                if t < t_begin:
+                    continue
+
+                # Get the cell index
+                z_idx = int(z / self.dz)
+
+                # Get the time index
+                t_idx = int(t / self.dt) % self.Riz_nt
+
+                # Increment the ionization rate
+                self.Riz_by_species[spec][t_idx][z_idx] += w
+
+    def collect_Riz(self):
+        '''
+        Collect the ionization rate from all processors.
+        '''
+        for spec in self.species_names[1:]:
             # Sum the ionization rate histograms from all processors
-            Riz_all = np.zeros_like(self.Riz_by_species[spec])
-            comm.Allreduce(self.Riz_by_species[spec], Riz_all, op=mpi.SUM)
-            self.Riz_by_species[spec] = Riz_all
+            Riz = np.zeros_like(self.Riz_by_species[spec])
+            comm.Allreduce(self.Riz_by_species[spec], Riz, op=mpi.SUM)
+            self.Riz_by_species[spec] = Riz
 
     ###########################################################################
     # Simulation Functions                                                    #
@@ -1480,9 +1534,11 @@ class Diagnostics1D:
                         if value:
                             self.calculate_ieadf(species, key)
 
-            # Save ionization rate histogram for each species, if necessary
-            if self.Riz_switch:
-                self.calculate_Riz()
+            # Save ionization rate for each species, if necessary
+            if self.Riz_switch and self.Riz_current_output <= self.Riz_max_output:
+                self.add_bulk_Riz()
+                self.add_buff_Riz()
+                self.Riz_diag_counter += 1
 
             # Clear ieadf buffers
             self.clear_ieadf_buffers()
@@ -1564,7 +1620,7 @@ class Diagnostics1D:
                     self.ieadf_by_species[species][key] = np.zeros((len(self.iedf_bin_centers), len(self.iadf_bin_centers)))
 
         # Ionization rate array
-        if self.Riz_switch:
+        if self.Riz_switch and self.Riz_diag_counter == 0:
             for species in self.species_names[1:]:
                 self.Riz_by_species[species] = np.zeros((self.Riz_nt, self.nz))
 
@@ -1631,8 +1687,8 @@ class Diagnostics1D:
             species = self.species_names
 
             # Multiply by the time factor to get ionization rate
-            if self.Riz_switch:
-                factor = 1.0 / (self.diag_time * self.dz)
+            if self.Riz_switch and self.Riz_diag_counter == 0:
+                factor = 1.0 / (self.Riz_collection_time * self.dz)
                 for spec in species[1:]:
                     self.Riz_by_species[spec] *= factor
 
@@ -1965,6 +2021,14 @@ class Diagnostics1D:
                         else:
                             self.in_J_d[ii] = np.sum(self.in_J_d[ii], axis=0) / self.num_in_collections_this_output[ii] * (constants.ep0 / self.dt)
 
+        # Send ionization data to rank 0
+        if self.Riz_switch and self.Riz_diag_counter == self.diag_collections_per_Riz:
+            self.collect_Riz()
+
+            # Reset counters
+            self.Riz_diag_counter = 0
+            self.Riz_current_output += 1
+
         if comm.rank != 0:
             return
 
@@ -2004,9 +2068,15 @@ class Diagnostics1D:
                     np.save(os.path.join(self.ieadf_dir_by_species[species], f'{prefix}_{step:04d}.npy'), self.ieadf_by_species[species][key])
 
         # Save ionization rate histograms
-        if self.Riz_switch:
-            for species in self.species_names[1:]:
-                np.save(os.path.join(self.Riz_dir_by_species[species], f'Riz_{step:04d}.npy'), self.Riz_by_species[species])
+        if self.Riz_switch and self.Riz_diag_counter == 0:
+            # Save diagnostic
+            if self.Riz_current_output - 1 <= self.Riz_max_output:
+                for species in self.species_names[1:]:
+                    np.save(os.path.join(self.Riz_dir_by_species[species], f'Riz_{step:04d}.npy'), self.Riz_by_species[species])
+
+            # Turn off ionization rate diagnostic if we have reached the maximum number of outputs
+            if self.Riz_current_output > self.Riz_max_output:
+                self.Riz_switch = False
 
         # Save time resolved diagnostics
         active = self.master_diagnostic_dict['time_resolved']
