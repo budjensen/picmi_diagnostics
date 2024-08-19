@@ -28,10 +28,13 @@ class CapacitiveDischargeExample(object):
     freq            = 13.56e6                           # Hz
     voltage         = 0.0                               # V
     voltage_rf      = 50.0                              # V
-    # ICP_E_field     = 200.0                             # V / m
-    # ICP_freq        = freq                              # Hz
-    # ICP_zmin        = gap / 3                           # m
-    # ICP_zmax        = 2 * gap / 3                       # m
+
+    flag_ICP_field = True                             # Switch to add an applied field
+    ICP_E_field     = 200.0                             # V / m
+    ICP_freq        = 13.56e6 #freq                     # Hz
+    ICP_zmin        = gap / 3                           # m
+    ICP_zmax        = 2 * gap / 3                       # m
+
     gas_density     = 30.0*ng_1Torr*milli               # [mTorr]
     gas_temp        = 300.0                             # [K]
     m_ion           = 6.63e-26                          # [kg]
@@ -177,13 +180,14 @@ class CapacitiveDischargeExample(object):
         # This will use the tridiagonal solver
         self.solver = picmi.ElectrostaticSolver(grid=self.grid)
 
-        # # Add the applied external field
-        # self.Ex_ext = f'{self.ICP_E_field}*sin(2*pi*{self.ICP_freq:.5e}*t)'
-        # self.Ey_ext = 0
-        # self.Ez_ext = 0
-        # self.applied_field = picmi.AnalyticAppliedField(Ex_expression=f'if(z>{self.ICP_zmin}, if(z<{self.ICP_zmax}, {self.Ex_ext}, 0), 0)',
-        #                                                 Ey_expression=self.Ey_ext,
-        #                                                 Ez_expression=self.Ez_ext)
+        if self.flag_ICP_field:
+            # Add the applied external field
+            self.Ex_ext = f'{self.ICP_E_field}*sin(2*pi*{self.ICP_freq:.5e}*t)'
+            self.Ey_ext = 0
+            self.Ez_ext = 0
+            self.applied_field = picmi.AnalyticAppliedField(Ex_expression=f'if(z>{self.ICP_zmin}, if(z<{self.ICP_zmax}, {self.Ex_ext}, 0), 0)',
+                                                            Ey_expression=self.Ey_ext,
+                                                            Ez_expression=self.Ez_ext)
 
         #######################################################################
         # Particle types setup                                                #
@@ -300,7 +304,8 @@ class CapacitiveDischargeExample(object):
             warpx_field_gathering_algo = 'energy-conserving'
         )
         self.solver.sim = self.sim
-        # self.sim.add_applied_field(self.applied_field)
+        if self.flag_ICP_field:
+            self.sim.add_applied_field(self.applied_field)
 
         self.sim.add_species(
             self.electrons,
