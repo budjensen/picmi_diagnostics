@@ -7,7 +7,7 @@ import sys, os, time, copy
 from pywarpx import callbacks, fields, libwarpx, particle_containers, picmi
 from mpi4py import MPI as mpi
 
-from main import Diagnostics1D
+from picmi_diagnostics.main import Diagnostics1D, ICPHeatSource
 
 comm = mpi.COMM_WORLD
 num_proc = comm.Get_size()
@@ -29,11 +29,11 @@ class CapacitiveDischargeExample(object):
     voltage         = 0.0                               # V
     voltage_rf      = 50.0                              # V
 
-    flag_ICP_field = True                             # Switch to add an applied field
-    ICP_E_field     = 200.0                             # V / m
-    ICP_freq        = 13.56e6 #freq                     # Hz
-    ICP_zmin        = gap / 3                           # m
-    ICP_zmax        = 2 * gap / 3                       # m
+    flag_ICP_heat   = False                              # Switch to add self-consistent ICP heating
+    ICP_Jmag        = 100.0                             # [A/m^2]
+    ICP_freq        = 10e6                              # [Hz]
+    ICP_zmin        = 0                                 # [m]
+    ICP_zmax        = 25*milli                          # [m]
 
     gas_density     = 30.0*ng_1Torr*milli               # [mTorr]
     gas_temp        = 300.0                             # [K]
@@ -59,12 +59,10 @@ class CapacitiveDischargeExample(object):
     evolve_time = 0.0# / freq                           # Time to evolve between diagnostic evaluations
     diag_time = 10 / freq                         # Time of diagnostic evaluations
 
-    time_bw_diag = np.min([0.005 / freq, 100e-12])     # Time between diagnostic evaluations
-
     num_diag_steps = 2                                 # Number of diagnostic evaluations
     collections_per_diag_step = 400                    # Number of collections per diagnostic evaluation for time resolved diagnostics
     interval_diag_times = [0, 0.25, 0.5, 0.75]    # Times to evaluate interval diagnostics (as a fraction of the RF period), if turned on
-    Riz_collection_time = 80 / freq                      # Time to run ionization rate diagnostics
+    Riz_collection_time = diag_time                      # Time to run ionization rate diagnostics
 
     # Total simulation time in seconds
     total_time = convergence_time + num_diag_steps * (diag_time + evolve_time)
@@ -100,7 +98,7 @@ class CapacitiveDischargeExample(object):
         },
         'time_resolved': {
             'N_i': True,
-            'N_e': True,
+            'N_e': False,
             'E_z': False,
             'phi': True,
             'W_e': True,
@@ -109,10 +107,10 @@ class CapacitiveDischargeExample(object):
             'Jzi': True,
             'IPe': False,
             'IPi': False,
-            'J_d': True
+            'J_d': False
         },
         'interval': {
-            'N_i': True,
+            'N_i': False,
             'N_e': False,
             'E_z': False,
             'phi': False,
@@ -148,10 +146,38 @@ class CapacitiveDischargeExample(object):
         # Set MCC subcycling steps
         self.mcc_subcycling_steps = None
 
-        # Initialize ion density array for diagnostics
-        self.ion_density_array = np.zeros(self.nz + 1)
-
+        self._setup_diagnostic_steps()
         self.setup_run()
+
+    def _setup_diagnostic_steps(self):
+        '''
+        Get step numbers to perform diagnostics. Computes:
+        - self.diag_start: first step of diagnostic collection for each
+          output set
+        - self.diag_stop: last step of diagnostic collection for each
+          output set (and the step info is saved)
+        - self.diag_period_steps: number of steps between diagnostics
+        '''
+        # Note: We calculate times in this function in seconds and then
+        #       convert to time steps to get the most accurate step numbers
+        diag_start = self.convergence_time
+        diag_n_evolve = self.diag_time + self.evolve_time
+        
+        # Make a list of diagnostic start times
+        diag_start_times = []
+        for i in range(self.num_diag_steps):
+            diag_start_times.append(diag_start + i * diag_n_evolve)
+        diag_start_times = np.array(diag_start_times)
+        
+        # Convert times to steps
+        self.diag_start = np.round(diag_start_times / self.dt).astype(int)
+        self.diag_period_steps = int(self.diag_time / self.dt)
+        self.diag_stop = self.diag_start + self.diag_period_steps
+
+        # If diag_stop[ii] == diag_start[ii+1], shift diag_end[ii] back 1 step
+        for ii in range(1, len(self.diag_start)):
+            if self.diag_start[ii] == self.diag_stop[ii - 1]:
+                self.diag_stop[ii - 1] -= 1
 
     def setup_run(self):
         '''Setup simulation components.'''
@@ -179,15 +205,6 @@ class CapacitiveDischargeExample(object):
 
         # This will use the tridiagonal solver
         self.solver = picmi.ElectrostaticSolver(grid=self.grid)
-
-        if self.flag_ICP_field:
-            # Add the applied external field
-            self.Ex_ext = f'{self.ICP_E_field}*sin(2*pi*{self.ICP_freq:.5e}*t)'
-            self.Ey_ext = 0
-            self.Ez_ext = 0
-            self.applied_field = picmi.AnalyticAppliedField(Ex_expression=f'if(z>{self.ICP_zmin}, if(z<{self.ICP_zmax}, {self.Ex_ext}, 0), 0)',
-                                                            Ey_expression=self.Ey_ext,
-                                                            Ez_expression=self.Ez_ext)
 
         #######################################################################
         # Particle types setup                                                #
@@ -304,8 +321,6 @@ class CapacitiveDischargeExample(object):
             warpx_field_gathering_algo = 'energy-conserving'
         )
         self.solver.sim = self.sim
-        if self.flag_ICP_field:
-            self.sim.add_applied_field(self.applied_field)
 
         self.sim.add_species(
             self.electrons,
@@ -320,6 +335,10 @@ class CapacitiveDischargeExample(object):
             )
         )
         self.solver.sim_ext = self.sim.extension
+
+        # Initialize the ICP heating source class, if necessary
+        if self.flag_ICP_heat:
+            self.ICP_heating_source = ICPHeatSource(self, self.sim.extension, ion_spec_names=['ar_ions'])
 
         #######################################################################
         # Add diagnostics                                                     #
@@ -348,39 +367,19 @@ class CapacitiveDischargeExample(object):
         self.picmi_diagnostics = Diagnostics1D(self, self.sim.extension, switches=self.diag_switches, interval_times=self.interval_diag_times, ion_spec_names=['ar_ions'], restart_checkpoint=False)
 
     #######################################################################
-    # Helper Functions                                                    #
-    #######################################################################
-    def _get_rho_ions(self):
-        # deposit the ion density in rho_fp
-        ar_ions_wrapper = particle_containers.ParticleContainerWrapper('ar_ions')
-        ar_ions_wrapper.deposit_charge_density(level=0)
-
-        rho_data = self.rho_wrapper[...]
-        self.ion_density_array += rho_data / constants.q_e / (self.diag_time/self.dt)
-
-    def _check_Ni_center(self):
-        # Get the ion density at the center of the domain
-        center_idx = (self.nz + 1) // 2
-        lower_idx = int(center_idx - 0.05 * self.nz)
-        upper_idx = int(center_idx + 0.05 * self.nz)
-
-        Ni = np.mean(self.ion_density_array[lower_idx:upper_idx + 1])
-        if Ni > self.plasma_density * 2:
-            sys.exit(f'Ion density at center of domain, {Ni:.2e} m^-3, is > {2 * self.plasma_density:.2e} m^-3.\nPlease reduce the time step and start again.')
-        else:
-            print(f'Ion density at center of domain: {Ni:.2e} m^-3')
-            self.ion_density_array = np.zeros(self.nz + 1)
-
-
-    #######################################################################
     # Run Simulation                                                      #
     #######################################################################
     def run_sim(self):
 
+        # Add the ICP heating source, if necessary
+        if self.flag_ICP_heat:
+            callbacks.installafterEsolve(self.ICP_heating_source.calculate_E_ICP)
+            callbacks.installafterEpush(self.ICP_heating_source.particle_push)
+
         ### Run until convergence ###
         #############################
-        self.sim.step(self.convergence_steps - self.evolve_steps - 10)
-        elapsed_steps = self.convergence_steps - self.evolve_steps - 10
+        self.sim.step(self.convergence_steps - self.evolve_steps)
+        elapsed_steps = self.convergence_steps - self.evolve_steps
 
         # Set up the particle buffer for diagnostic collection
         particle_buffer = particle_containers.ParticleBoundaryBufferWrapper()
@@ -389,13 +388,12 @@ class CapacitiveDischargeExample(object):
         callbacks.installbeforestep(self.picmi_diagnostics.do_diagnostics)
 
         # Run the simulation until the end
-        self.sim.step(self.max_steps - elapsed_steps + 10)
+        self.sim.step(self.max_steps - elapsed_steps + 8)
         
         callbacks.uninstallcallback('beforestep', self.picmi_diagnostics.do_diagnostics)
-
-        # Run 10 extra steps
-        self.sim.step(10)
-
+        if self.flag_ICP_heat:
+            callbacks.uninstallcallback('afterEsolve', self.ICP_heating_source.calculate_E_ICP)
+            callbacks.uninstallcallback('afterEpush', self.ICP_heating_source.particle_push)
 
 ##########################
 ### Execute Simulation ###

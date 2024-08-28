@@ -9,12 +9,296 @@ import sys, os
 
 from pywarpx import fields, particle_containers, picmi
 from mpi4py import MPI as mpi
+import time
 
 # Initialize mpi communicator
 comm = mpi.COMM_WORLD
 num_proc = comm.Get_size()
 
 constants = picmi.constants
+
+class ICPHeatSource:
+    def __init__(self,
+                 simulation_obj: CapacitiveDischargeExample,
+                 sim_ext: picmi.Simulation.extension,
+                 ion_spec_names: list = None,
+                 diag_outfolder: str = './diags'
+                 ):
+        '''
+        Class which inputs power into the plasma via an external ICP Field.
+        The simulation class must have the following attributes:
+        - ICP_Jmag: float
+        - ICP_freq: float
+        - ICP_zmin: float
+        - ICP_zmax: float
+
+        Parameters
+        ----------
+        simulation_obj: CapacitiveDischargeExample
+            Object of the main simulation class
+        sim_ext: picmi.Simulation.extension
+            Simulation extension object
+        ion_spec_names: list, optional
+            List of ion species names
+        diag_outfolder: str, optional
+            Folder to save diagnostics
+        '''
+        # Import simulation extension object
+        self.sim_ext = sim_ext
+
+        # Import simulation parameters
+        self.Jmag        = simulation_obj.ICP_Jmag
+        self.freq        = simulation_obj.ICP_freq
+        self.zmin        = simulation_obj.ICP_zmin
+        self.zmax        = simulation_obj.ICP_zmax
+
+        self.dt          = simulation_obj.dt
+        self.dz          = simulation_obj.dz
+        self.nz          = simulation_obj.nz
+
+        # Import general timing parameters
+        self._import_general_timing_info(simulation_obj)
+
+        self.species_names = ['electrons']
+        if ion_spec_names is not None:
+            self.species_names += ion_spec_names
+
+        self.charge_by_name = {
+            'electrons': -constants.q_e,
+            ion_spec_names[0]: constants.q_e
+        }
+
+        self.diag_outfolder = diag_outfolder
+
+        # Initialize
+        self._initialize_ICP()
+        self._initialize_ICP_diagnostics()
+
+    def _initialize_ICP(self):
+        '''
+        Initialize the ICP region.
+        '''
+        # Get the lower and upper bounds of the ICP region
+        self.zmin_idx = int(self.zmin / self.dz)
+        self.zmax_idx = int(self.zmax / self.dz)
+
+        # Resave the zmin and zmax values
+        self.zmin = self.zmin_idx * self.dz
+        self.zmax = self.zmax_idx * self.dz
+
+        # Calculate the coefficients for the push
+        self.t_coeff = 2 * np.pi * self.freq
+        self.E_field_coeff = self.dt / constants.ep0
+        self.accel_coeff = self.charge_by_name['electrons'] * self.dt / constants.m_e
+
+        # NEED TO CONFIRM ARRAYS ARE CORRECT EVERYWHERE
+        self.ICP_window_size = self.zmax_idx - self.zmin_idx
+
+        # Initialize the ICP field
+        self.E_ICP = np.zeros(self.ICP_window_size)
+
+        # Save pertinant information to file './diags/ICP_info.dat'
+        if comm.rank != 0:
+            return
+        
+        # Make a diagnostics directory
+        if not os.path.exists(self.diag_outfolder):
+            os.makedirs(self.diag_outfolder)
+
+        self.ICP_dir = os.path.join(self.diag_outfolder, 'ICP')
+        if not os.path.exists(self.ICP_dir):
+            os.makedirs(self.ICP_dir)
+
+        file = os.path.join(self.ICP_dir, 'ICP_info.dat')
+        with open(file, 'w') as f:
+            f.write('ICP Parameters\n')
+            f.write('--------------\n')
+            f.write(f'Source [A/m^2]={self.Jmag}*sin(2*pi*{self.freq}*t)\n')
+            f.write(f'zmin [m]={self.zmin:e}\n')
+            f.write(f'zmax [m]={self.zmax:e}\n')
+            f.write(f'zmin_idx={self.zmin_idx}\n')
+            f.write(f'zmax_idx={self.zmax_idx}\n\n')
+
+            f.write(f'ICP Window Size=zmax_idx-zmin_idx={self.ICP_window_size}\n')
+
+            f.write('Simulation Parameters\n')
+            f.write('---------------------\n')
+            f.write(f'dt [s]={self.dt:e}\n')
+            f.write(f'dz [m]={self.dz:e}\n')
+
+    def _initialize_ICP_diagnostics(self):
+        '''
+        Initialize the ICP diagnostics.
+        '''
+        # Set the diagnostic output index
+        self.curr_diag_output = 0
+
+        # Get the number of steps within the first diagnostic collection
+        self.diag_step_count = self.diag_stop[self.curr_diag_output] - self.diag_start[self.curr_diag_output]
+
+        if comm.rank != 0:
+            return
+
+        # Initialize the ICP recording arrays
+        self.Jperp_diag = np.zeros((self.diag_step_count + 1, self.ICP_window_size))
+        self.field_diag = np.zeros((self.diag_step_count + 1, self.ICP_window_size))
+
+    def _import_general_timing_info(self, simulation_obj: CapacitiveDischargeExample):
+        '''
+        Import diagnostic steps for diagnostics.
+        
+        Parameters
+        ----------
+        simulation_obj: CapacitiveDischargeExample
+            Object of the main simulation class
+        '''
+        # Import simulation parameters
+        self.diag_time         = simulation_obj.diag_time
+        self.evolve_time       = simulation_obj.evolve_time
+        self.convergence_time  = simulation_obj.convergence_time
+
+        self.num_outputs       = simulation_obj.num_diag_steps
+        self.max_output_idx    = self.num_outputs - 1
+        self.max_steps         = simulation_obj.max_steps
+
+        self.diag_start        = simulation_obj.diag_start
+        self.diag_stop         = simulation_obj.diag_stop
+
+    ###########################################################################
+    # Functions                                                               #
+    ###########################################################################
+    def calculate_E_ICP(self):
+        '''
+        Function which heats particles in the plasma using an ICP field.
+        '''
+        # Calculate perpendicular conduction current density
+        J_conduction = self.calculate_J_perp()
+
+        # Calculate the perscribed current density
+        J_prescribed = self.Jmag * np.sin(self.t_coeff * self.sim_ext.warpx.gett_new(lev=0))
+
+        # Calculate the difference between the two current densities
+        J_diff = J_prescribed - J_conduction
+
+        # Calculate the ICP field
+        self.E_ICP += J_diff * self.E_field_coeff
+
+        # Save the current density and field to the diagnostic arrays
+        if comm.rank != 0:
+            return
+        step = self.sim_ext.warpx.getistep(lev=0)
+        if step > self.diag_stop[self.max_output_idx] or step < self.diag_start[self.curr_diag_output]:
+            return
+
+        coll_idx = step - self.diag_start[self.curr_diag_output]
+
+        self.Jperp_diag[coll_idx] = J_conduction
+        self.field_diag[coll_idx] = self.E_ICP
+
+        if coll_idx == self.diag_step_count:
+            self.curr_diag_output += 1
+            self._save_data()
+
+            if self.curr_diag_output != self.num_outputs:
+                self.diag_step_count = self.diag_stop[self.curr_diag_output] - self.diag_start[self.curr_diag_output]
+                self.Jperp_diag = np.zeros((self.diag_step_count + 1, self.ICP_window_size))
+                self.field_diag = np.zeros((self.diag_step_count + 1, self.ICP_window_size))
+
+    def particle_push(self):
+        '''
+        Push particles using the ICP field.
+        '''
+        warpx = self.sim_ext.warpx
+        # Config = self.sim_ext.Config
+
+        # data access
+        multi_particle_container = warpx.multi_particle_container()
+        particle_container = multi_particle_container.get_particle_container_from_name('electrons')
+
+        # Set pusher
+        pusher = self.E_ICP * self.accel_coeff
+
+        # compute
+        # get every local chunk of particles
+        for particle_iterator in particle_container.iterator(particle_container, level=0):
+            # compile-time and runtime attributes in SoA format
+            # soa = particle_iterator.soa().to_cupy() if Config.have_gpu else particle_iterator.soa().to_numpy()
+            soa = particle_iterator.soa().to_numpy()
+
+            # notes:
+            # Only the next lines are the "HOT LOOP" of the computation.
+            # For speed, use array operation.
+            # In 1D, data is stored according to:
+            #  'x': z
+            #  'y': weight
+            #  'z': ux
+            #  'a': uy
+            #  'b': uz
+
+            # Push the particles
+            idx = np.floor_divide(soa.real['x'], self.dz).astype(int) - self.zmin_idx # ends up being length of soa
+            mask = (idx >= 0) & (idx < self.ICP_window_size) # mask for particles in the ICP region
+            valid_idx = idx[mask]
+            soa.real['z'][mask] += pusher[valid_idx] # push the particles
+
+    def calculate_J_perp(self):
+        '''
+        Calculate the perpendicular conduction current density.
+        '''
+        # Get the current density of all species
+        J_perp = np.zeros(self.ICP_window_size)
+        for species in self.species_names:
+            J_perp += self.charge_by_name[species] * self.calculate_Flux_perp(species)
+
+        return J_perp
+    
+    def calculate_Flux_perp(self, species) -> np.ndarray[float]:
+        '''
+        Calculate the perpendicular flux density for a species.
+
+        Parameters
+        ----------
+        species: str
+            Name of species
+        '''
+        # Get wrappers for species
+        species_wrapper = particle_containers.ParticleContainerWrapper(species)
+
+        # Get particle data
+        try:
+            ux = np.concatenate(species_wrapper.get_particle_ux())
+            z = np.concatenate(species_wrapper.get_particle_z())
+            w = np.concatenate(species_wrapper.get_particle_weight())
+        except ValueError:
+            ux = np.array([])
+            z = np.array([])
+            w = np.array([])
+
+        # Calculate the flux of each cell in the ICP region
+        Flux_perp_temp = np.zeros(self.ICP_window_size)
+
+        idx = np.floor_divide(z, self.dz).astype(int) - self.zmin_idx
+        mask = (idx >= 0) & (idx < self.ICP_window_size) # mask for particles in the ICP region
+        valid_idx = idx[mask]
+        weights = ux[mask] * w[mask]
+        Flux_perp_temp[:len(np.bincount(valid_idx, weights))] += np.bincount(valid_idx, weights) # Use np.bincount to accumulate contributions
+
+        # Send the flux to all processes
+        Flux_perp = np.zeros_like(Flux_perp_temp)
+        comm.Allreduce(Flux_perp_temp, Flux_perp, op=mpi.SUM)
+
+        # Scale the flux to [1/(s*m^2)]
+        Flux_perp /= self.dz
+
+        return Flux_perp
+
+    def _save_data(self):
+        '''
+        Save the ICP diagnostic data to file.
+        '''
+        # Save the current density and field to file
+        np.save(os.path.join(self.ICP_dir, f'Jperp_{self.curr_diag_output:04d}.npy'), self.Jperp_diag)
+        np.save(os.path.join(self.ICP_dir, f'E_ICP_{self.curr_diag_output:04d}.npy'), self.field_diag)
 
 class Diagnostics1D:
     def __init__(self,
@@ -202,12 +486,6 @@ class Diagnostics1D:
         else:
             self.convergence_time = simulation_obj.convergence_time
             self.max_time = simulation_obj.total_time
-        self.diag_time = simulation_obj.diag_time
-        self.evolve_time = simulation_obj.evolve_time
-
-        self.num_in_tr = simulation_obj.collections_per_diag_step
-        if self.num_in_tr > int(self.diag_time / self.dt):
-            self.num_in_tr = int(self.diag_time / self.dt)
 
         self.in_period = self.rf_period
         if interval_times is None:
@@ -264,7 +542,9 @@ class Diagnostics1D:
         self._make_particle_dictionaries()
 
         # Set up diagnostics
-        self._get_diagnostic_steps()
+        self._import_general_timing_info(simulation_obj)
+        if any(time_resolved_dict.values()):
+            self._get_time_resolved_steps(simulation_obj)
         if any(interval_dict.values()):
             self._get_interval_collection_steps()
         else:
@@ -519,6 +799,22 @@ class Diagnostics1D:
         
         return ICP_Ex_field
 
+    def _import_general_timing_info(self, simulation_obj: CapacitiveDischargeExample):
+        '''
+        Import diagnostic steps for diagnostics.
+        
+        Parameters
+        ----------
+        simulation_obj: CapacitiveDischargeExample
+            Object of the main simulation class
+        '''
+        # Import simulation parameters
+        self.diag_time         = simulation_obj.diag_time
+        self.evolve_time       = simulation_obj.evolve_time
+
+        self.diag_start        = simulation_obj.diag_start
+        self.diag_stop         = simulation_obj.diag_stop
+
     def _get_interval_collection_steps(self):
         '''
         Get step numbers to perform interval diagnostics. Computes:
@@ -569,39 +865,33 @@ class Diagnostics1D:
                 temp_dict = {key: bool for key, bool in zip(self.master_diagnostic_dict['interval'].keys(), self.original_interval_dict_array)}
                 self.master_diagnostic_dict['interval'] = temp_dict
 
-    def _get_diagnostic_steps(self):
+    def _get_time_resolved_steps(self, simulation_obj: CapacitiveDischargeExample):
         '''
-        Get step numbers to perform diagnostics. Computes:
-        - self.diag_start_step: first step for diagnostics
-        - self.diag_stop_step: last step for diagnostics
-        - self.diag_period_steps: number of steps between diagnostics
+        Get step numbers to perform time resolved diagnostics. Computes:
+        - self.num_in_tr: number of time resolved diagnostic collections per
+          diagnostic output
+        - self.tr_interval: time between time resolved diagnostic collections
         - self.diag_time_resolving_steps: number of steps between time resolved
-        diagnostic collections
+          diagnostic collections
+
+        Parameters
+        ----------
+        simulation_obj: CapacitiveDischargeExample
+            Object of the main simulation
         '''
         # Note: We calculate times in this function in seconds and then
         #       convert to time steps to get the most accurate step numbers
-        diag_start = self.convergence_time
-        diag_n_evolve = self.diag_time + self.evolve_time
-        
-        # Make a list of diagnostic start times
-        diag_start_times = []
-        for i in range(self.num_outputs):
-            diag_start_times.append(diag_start + i * diag_n_evolve)
-        diag_start_times = np.array(diag_start_times)
+
+        # Import simulation parameters
+        self.num_in_tr = simulation_obj.collections_per_diag_step
+        if self.num_in_tr > int(self.diag_time / self.dt):
+            self.num_in_tr = int(self.diag_time / self.dt)
 
         # Get time between time resolved diagnostic collections
         self.tr_interval = self.diag_time / self.num_in_tr
         
         # Convert times to steps
-        self.diag_start = np.round(diag_start_times / self.dt).astype(int)
-        self.diag_period_steps = int(self.diag_time / self.dt)
-        self.diag_stop = self.diag_start + self.diag_period_steps
         self.diag_time_resolving_steps = int(self.tr_interval / self.dt)
-
-        # If diag_stop[ii] == diag_start[ii+1], shift diag_end[ii] back 1 step
-        for ii in range(1, len(self.diag_start)):
-            if self.diag_start[ii] == self.diag_stop[ii - 1]:
-                self.diag_stop[ii - 1] -= 1
 
     def _save_diagnostic_inputs(self):
         '''
@@ -1133,7 +1423,10 @@ class Diagnostics1D:
                 t_idx = int(t / self.dt) % self.Riz_nt
 
                 # Increment the ionization rate
-                self.Riz_by_species[spec][t_idx][z_idx] += w
+                try:
+                    self.Riz_by_species[spec][t_idx][z_idx] += w
+                except IndexError:
+                    self.Riz_by_species[spec][t_idx][z_idx - 1] += w
 
     def add_bulk_Riz(self):
         '''
