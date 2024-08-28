@@ -1,3 +1,4 @@
+from matplotlib.animation import FuncAnimation
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -1255,6 +1256,62 @@ class Analysis:
         ax.margins(x=0)
 
         return fig, ax
+
+    def animate_time_resolved(self, field: str, collection: int, dpi=150, interval=100, repeat_delay=500):
+        '''
+        Animate the time resolved data
+        
+        Parameters
+        ----------
+        field : str
+            The field to animate
+        collection : int
+            The index of the collection to animate
+        dpi : int
+            The DPI of the plot
+        interval : int, default=200
+            The interval between frames in milliseconds
+        repeat_delay : int, default=1000
+            The delay between loops in milliseconds
+        
+        Returns
+        -------
+        anim : matplotlib.animation.FuncAnimation
+            The animation object
+        '''
+        if not self.tr_bool:
+            raise ValueError('Time resolved data not found')
+        if field not in self.tr_fields:
+            raise ValueError(f'Field must be one of: {", ".join(self.tr_fields)}')
+        # Check if the field has been loaded into self.tr_data. If it unloaded, the list will be empty
+        if any([len(self.tr_data[field][key]) == 0 for key in self.tr_data[field]]):
+            self.load_time_resolved(field)
+
+        fig, ax = plt.subplots(1,1, dpi=dpi)
+        if field == 'E_z' or field == 'J_d':
+            x = self.cells
+        else:
+            x = self.nodes
+        line, = ax.plot(x, self.tr_data[field][collection][0], color='black')
+
+        ax.set_xlabel('Position [m]')
+        ax.set_ylabel(f'{field}')
+        ax.set_title(f'Time resolved {field}')
+        ax.margins(x=0)
+
+        def update(frame):
+            line.set_ydata(self.tr_data[field][collection][frame])
+            min = np.min(self.tr_data[field][collection][frame])
+            max = np.max(self.tr_data[field][collection][frame])
+            
+            if max == min:
+                ax.set_ylim(max - 0.01*max, max + 0.01*max)
+            else:
+                ax.set_ylim(min, max)
+            return line,
+
+        anim = FuncAnimation(fig, update, frames=len(self.tr_data[field][collection]), interval=interval, repeat_delay=repeat_delay)
+        return anim
     
     def _color_chooser(self, idx, num_colors, cmap='GnBu'):
         '''
