@@ -71,12 +71,17 @@ class ICPHeatSource:
         self.diag_outfolder = diag_outfolder
 
         # Initialize
-        self._initialize_ICP()
+        self._initialize_ICP(simulation_obj=simulation_obj)
         self._initialize_ICP_diagnostics()
 
-    def _initialize_ICP(self):
+    def _initialize_ICP(self, simulation_obj: CapacitiveDischargeExample):
         '''
         Initialize the ICP region.
+
+        Parameters
+        ----------
+        simulation_obj: CapacitiveDischargeExample
+            Object of the main simulation class
         '''
         # Get the lower and upper bounds of the ICP region
         self.zmin_idx = int(self.zmin / self.dz)
@@ -89,7 +94,10 @@ class ICPHeatSource:
         # Calculate the coefficients for the push
         self.t_coeff = 2 * np.pi * self.freq
         self.E_field_coeff = self.dt / constants.ep0
-        self.accel_coeff = self.charge_by_name['electrons'] * self.dt / constants.m_e
+        self.accel_coeff = {}
+        self.accel_coeff['electrons'] = self.charge_by_name['electrons'] * self.dt / constants.m_e
+        for species in self.species_names[1:]:
+            self.accel_coeff[species] = self.charge_by_name[species] * self.dt / simulation_obj.m_ion
 
         # NEED TO CONFIRM ARRAYS ARE CORRECT EVERYWHERE
         self.ICP_window_size = self.zmax_idx - self.zmin_idx
@@ -186,6 +194,7 @@ class ICPHeatSource:
         # Save the current density and field to the diagnostic arrays
         if comm.rank != 0:
             return
+
         step = self.sim_ext.warpx.getistep(lev=0)
         if step > self.diag_stop[self.max_output_idx] or step < self.diag_start[self.curr_diag_output]:
             return
@@ -213,10 +222,12 @@ class ICPHeatSource:
 
         # data access
         multi_particle_container = warpx.multi_particle_container()
+
+        # Push electrons
         particle_container = multi_particle_container.get_particle_container_from_name('electrons')
 
         # Set pusher
-        pusher = self.E_ICP * self.accel_coeff
+        pusher = self.E_ICP * self.accel_coeff['electrons']
 
         # compute
         # get every local chunk of particles
@@ -240,6 +251,38 @@ class ICPHeatSource:
             mask = (idx >= 0) & (idx < self.ICP_window_size) # mask for particles in the ICP region
             valid_idx = idx[mask]
             soa.real['z'][mask] += pusher[valid_idx] # push the particles
+        
+        # # Push ions
+        # for species in self.species_names[1:]:
+        #     particle_container = multi_particle_container.get_particle_container_from_name(species)
+
+        #     # Set pusher
+        #     pusher = self.E_ICP * self.accel_coeff[species]
+
+        #     # compute
+        #     # get every local chunk of particles
+        #     for particle_iterator in particle_container.iterator(particle_container, level=0):
+        #         # compile-time and runtime attributes in SoA format
+        #         # soa = particle_iterator.soa().to_cupy() if Config.have_gpu else particle_iterator.soa().to_numpy()
+        #         soa = particle_iterator.soa().to_numpy()
+
+        #         # notes:
+        #         # Only the next lines are the "HOT LOOP" of the computation.
+        #         # For speed, use array operation.
+        #         # In 1D, data is stored according to:
+        #         #  'x': z
+        #         #  'y': weight
+        #         #  'z': ux
+        #         #  'a': uy
+        #         #  'b': uz
+        #         step = self.sim_ext.warpx.getistep(lev=0)
+
+        #         # Push the particles
+        #         idx = np.floor_divide(soa.real['x'], self.dz).astype(int) - self.zmin_idx # ends up being length of soa
+        #         mask = (idx >= 0) & (idx < self.ICP_window_size) # mask for particles in the ICP region
+        #         valid_idx = idx[mask]
+
+        #         soa.real['z'][mask] += pusher[valid_idx] # push the particles
 
     def calculate_J_perp(self):
         '''
@@ -543,8 +586,7 @@ class Diagnostics1D:
 
         # Set up diagnostics
         self._import_general_timing_info(simulation_obj)
-        if any(time_resolved_dict.values()):
-            self._get_time_resolved_steps(simulation_obj)
+        self._get_time_resolved_steps(simulation_obj)
         if any(interval_dict.values()):
             self._get_interval_collection_steps()
         else:
