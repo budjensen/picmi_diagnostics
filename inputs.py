@@ -322,6 +322,13 @@ class CapacitiveDischargeExample(object):
         )
         self.solver.sim = self.sim
 
+        # Initialize the ICP field, if necessary
+        if self.flag_ICP_heat:
+            self.applied_field = picmi.AnalyticAppliedField(Ex_expression=0,
+                                                            Ey_expression=0,
+                                                            Ez_expression=0)
+            self.sim.add_applied_field(self.applied_field)
+
         self.sim.add_species(
             self.electrons,
             layout = picmi.GriddedLayout(
@@ -374,7 +381,6 @@ class CapacitiveDischargeExample(object):
         # Add the ICP heating source, if necessary
         if self.flag_ICP_heat:
             callbacks.installafterEsolve(self.ICP_heating_source.calculate_E_ICP)
-            callbacks.installafterEpush(self.ICP_heating_source.particle_push)
 
         ### Run until convergence ###
         #############################
@@ -393,7 +399,6 @@ class CapacitiveDischargeExample(object):
         callbacks.uninstallcallback('beforestep', self.picmi_diagnostics.do_diagnostics)
         if self.flag_ICP_heat:
             callbacks.uninstallcallback('afterEsolve', self.ICP_heating_source.calculate_E_ICP)
-            callbacks.uninstallcallback('afterEpush', self.ICP_heating_source.particle_push)
 
 ##########################
 ### Execute Simulation ###

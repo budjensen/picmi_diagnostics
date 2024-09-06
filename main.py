@@ -149,7 +149,7 @@ class ICPHeatSource:
 
         # Initialize the ICP recording arrays
         self.Jperp_diag = np.zeros((self.diag_step_count + 1, self.ICP_window_size))
-        self.field_diag = np.zeros((self.diag_step_count + 1, self.ICP_window_size))
+        self.field_diag = np.zeros((self.diag_step_count + 1, self.ICP_window_size + 1))
 
     def _import_general_timing_info(self, simulation_obj: CapacitiveDischargeExample):
         '''
@@ -191,6 +191,26 @@ class ICPHeatSource:
         # Calculate the ICP field
         self.E_ICP += J_diff * self.E_field_coeff
 
+        # Make an array of length nz + 1 and fill it with the ICP field
+        E_ICP_full = np.zeros(self.nz + 1)
+
+        # For the first (last) node, we use the first (last) cell value. 
+        # For the rest, we use the average of the neighboring cells.
+        # (This approach is much more stable than the below.)
+        E_ICP_full[self.zmin_idx] = self.E_ICP[0]
+        E_ICP_full[self.zmax_idx] = self.E_ICP[-1]
+        E_ICP_full[self.zmin_idx+1:self.zmax_idx] = (self.E_ICP[:-1] + self.E_ICP[1:]) / 2
+
+        # Alternatively, just fill (this is very unstable)
+        # E_ICP_full[self.zmin_idx:self.zmax_idx] = self.E_ICP
+
+        # Get the Ex field wrapper
+        Ex = fields.ExFPWrapper()
+
+        Ex[...] = E_ICP_full
+
+        step = self.sim_ext.warpx.getistep(lev=0)
+
         # Save the current density and field to the diagnostic arrays
         if comm.rank != 0:
             return
@@ -202,7 +222,7 @@ class ICPHeatSource:
         coll_idx = step - self.diag_start[self.curr_diag_output]
 
         self.Jperp_diag[coll_idx] = J_conduction
-        self.field_diag[coll_idx] = self.E_ICP
+        self.field_diag[coll_idx] = E_ICP_full[self.zmin_idx : self.zmax_idx + 1]
 
         if coll_idx == self.diag_step_count:
             self.curr_diag_output += 1
@@ -211,78 +231,7 @@ class ICPHeatSource:
             if self.curr_diag_output != self.num_outputs:
                 self.diag_step_count = self.diag_stop[self.curr_diag_output] - self.diag_start[self.curr_diag_output]
                 self.Jperp_diag = np.zeros((self.diag_step_count + 1, self.ICP_window_size))
-                self.field_diag = np.zeros((self.diag_step_count + 1, self.ICP_window_size))
-
-    def particle_push(self):
-        '''
-        Push particles using the ICP field.
-        '''
-        warpx = self.sim_ext.warpx
-        # Config = self.sim_ext.Config
-
-        # data access
-        multi_particle_container = warpx.multi_particle_container()
-
-        # Push electrons
-        particle_container = multi_particle_container.get_particle_container_from_name('electrons')
-
-        # Set pusher
-        pusher = self.E_ICP * self.accel_coeff['electrons']
-
-        # compute
-        # get every local chunk of particles
-        for particle_iterator in particle_container.iterator(particle_container, level=0):
-            # compile-time and runtime attributes in SoA format
-            # soa = particle_iterator.soa().to_cupy() if Config.have_gpu else particle_iterator.soa().to_numpy()
-            soa = particle_iterator.soa().to_numpy()
-
-            # notes:
-            # Only the next lines are the "HOT LOOP" of the computation.
-            # For speed, use array operation.
-            # In 1D, data is stored according to:
-            #  'x': z
-            #  'y': weight
-            #  'z': ux
-            #  'a': uy
-            #  'b': uz
-
-            # Push the particles
-            idx = np.floor_divide(soa.real['x'], self.dz).astype(int) - self.zmin_idx # ends up being length of soa
-            mask = (idx >= 0) & (idx < self.ICP_window_size) # mask for particles in the ICP region
-            valid_idx = idx[mask]
-            soa.real['z'][mask] += pusher[valid_idx] # push the particles
-        
-        # # Push ions
-        # for species in self.species_names[1:]:
-        #     particle_container = multi_particle_container.get_particle_container_from_name(species)
-
-        #     # Set pusher
-        #     pusher = self.E_ICP * self.accel_coeff[species]
-
-        #     # compute
-        #     # get every local chunk of particles
-        #     for particle_iterator in particle_container.iterator(particle_container, level=0):
-        #         # compile-time and runtime attributes in SoA format
-        #         # soa = particle_iterator.soa().to_cupy() if Config.have_gpu else particle_iterator.soa().to_numpy()
-        #         soa = particle_iterator.soa().to_numpy()
-
-        #         # notes:
-        #         # Only the next lines are the "HOT LOOP" of the computation.
-        #         # For speed, use array operation.
-        #         # In 1D, data is stored according to:
-        #         #  'x': z
-        #         #  'y': weight
-        #         #  'z': ux
-        #         #  'a': uy
-        #         #  'b': uz
-        #         step = self.sim_ext.warpx.getistep(lev=0)
-
-        #         # Push the particles
-        #         idx = np.floor_divide(soa.real['x'], self.dz).astype(int) - self.zmin_idx # ends up being length of soa
-        #         mask = (idx >= 0) & (idx < self.ICP_window_size) # mask for particles in the ICP region
-        #         valid_idx = idx[mask]
-
-        #         soa.real['z'][mask] += pusher[valid_idx] # push the particles
+                self.field_diag = np.zeros((self.diag_step_count + 1, self.ICP_window_size + 1))
 
     def calculate_J_perp(self):
         '''
