@@ -1,0 +1,22 @@
+#!/bin/bash
+#SBATCH -J Turner_sample_script
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=48
+#SBATCH --time=00:00:15
+#SBATCH --mem-per-cpu=3G
+#SBATCH --output warpx.%j.out
+#SBATCH --signal=USR1@180        # Tells warpx to write a checkpoint and exit 3 minutes before time limit
+##SBATCH --mail-type=all
+##SBATCH --mail-user=bjensen@pppl.gov
+
+export OMP_NUM_THREADS=1
+export PYTHONPATH=$HOME/src/warpx/build_stellar_cpu_one_node/lib/site-packages
+
+# set dependencies
+module purge
+module load anaconda3/2024.2
+conda activate warpx_one_node
+
+# run program
+mpirun -n 48 python Turner_inputs.py
