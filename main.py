@@ -550,10 +550,6 @@ class Diagnostics1D:
             self._save_edf_settings()
         self._save_cells_and_nodes(simulation_obj)
 
-        # If any IP diagnostics are on in time_averaged, time_resolved, or interval, get the icp field
-        if any(dict.get('IPi') for dict in self.master_diagnostic_dict.values()) or any(dict.get('IPe') for dict in self.master_diagnostic_dict.values()):
-            self.ICP_Ex_field = self._get_ICP_field(simulation_obj)
-
         # Set diagnostic output index
         self.curr_diag_output = 0
 
@@ -667,7 +663,7 @@ class Diagnostics1D:
 
         self.P = []
         for i in range(len(self.species_names)):
-            self.P.append(np.zeros(self.nz + 1))
+            self.P.append(np.zeros(self.nz))
         self.P = np.stack(self.P)
 
         self.E = np.zeros(self.nz + 1)
@@ -748,47 +744,6 @@ class Diagnostics1D:
             self.check_file(f'{self.Riz_dir_by_species[species]}/bins_z.npy')
             np.save(f'{self.Riz_dir_by_species[species]}/bins_z.npy', Riz_z_centers)
             np.save(f'{self.Riz_dir_by_species[species]}/bins_t.npy', Riz_time_centers)
-
-    def _get_ICP_field(self, simulation_obj: CapacitiveDischargeExample):
-        '''
-        Gets the ICP field from the input file
-
-        Parameters
-        ----------
-        simulation_obj: CapacitiveDischargeExample
-            Object of the main simulation class
-        '''
-        # Get ICP field min/max
-        self.ICP_zmin = simulation_obj.ICP_zmin
-        self.ICP_zmax = simulation_obj.ICP_zmax
-
-        # Get the ICP field and frequency
-        self.ICP_E_field = simulation_obj.ICP_E_field
-        self.ICP_freq = simulation_obj.ICP_freq
-
-        # Get the ICP field
-        if simulation_obj.Ex_ext != 0:
-            self.Ex_ext = simulation_obj.Ex_ext.replace('cos', 'np.cos').replace('sin', 'np.sin').replace('pi', 'np.pi')
-        else:
-            print('ERROR: ICP field in x direction is zero. Turn off ICP diagnostics.')
-            sys.exit()
-        if simulation_obj.Ey_ext != 0:
-            print('ERROR: ICP field in y direction not supported')
-            sys.exit()
-        if simulation_obj.Ez_ext != 0:
-            print('ERROR: ICP field in z direction not supported')
-            sys.exit()
-        
-        def ICP_Ex_field(z: float):
-            '''
-            Returns the ICP field at a given z location at the current time.
-            '''
-            if z > self.ICP_zmin and z < self.ICP_zmax:
-                return eval(self.Ex_ext, {'np': np, 't': self.sim_ext.warpx.gett_new(lev=0)})
-            else:
-                return 0.0
-        
-        return ICP_Ex_field
 
     def _import_general_timing_info(self, simulation_obj: CapacitiveDischargeExample):
         '''
@@ -1027,27 +982,23 @@ class Diagnostics1D:
         # Get cell index of particle
         cell_idx = np.floor(z / self.dz).astype(int)
 
+        # Calculate the fractional position within the cell
+        frac_pos = (z / self.dz) - cell_idx
+
+        # Calculate weights for interpolation
+        frac_l = 1 - frac_pos
+        frac_r = frac_pos
+
         # Sort by z and assign w to nodes
         temp_N = np.zeros(self.nz + 1)
-        for ii in range(len(cell_idx)):
-            # Get node
-            idx = cell_idx[ii]
+        np.add.at(temp_N, cell_idx, w * frac_l)
+        # Get a list of all particles which are not at the last node
+        valid_idxs = cell_idx != self.nz
+        np.add.at(temp_N, cell_idx[valid_idxs] + 1, w[valid_idxs] * frac_r[valid_idxs])
 
-            if idx == self.nz:
-                # If at the last node, just add to the last node
-                temp_N[idx] += w[ii]
-            else:
-                # Weight particle to nodes
-                weight_right = z[ii] / self.dz - idx
-                weight_left = 1 - weight_right
-
-                # Multiply by weight
-                w_right = weight_right * w[ii]
-                w_left = weight_left * w[ii]
-
-                # Add particle to nodes ii and ii + 1
-                temp_N[idx] += w_left
-                temp_N[idx + 1] += w_right
+        # Multiply the first and last element by 2 to account for the half cell
+        temp_N[0] *= 2
+        temp_N[-1] *= 2
 
         # Note: We don't need to synchronize if all processes have particles
         #       that are in the same cells... The next few lines may be worth
@@ -1096,33 +1047,24 @@ class Diagnostics1D:
         # Get cell index of particle
         cell_idx = np.floor(z / self.dz).astype(int)
 
-        # Sort by z and assign v2 to nodes
+        # Calculate the fractional position within the cell
+        frac_pos = (z / self.dz) - cell_idx
+
+        # Calculate weights for interpolation
+        frac_l = 1 - frac_pos
+        frac_r = frac_pos
+
+        # Sort by z and assign w and W to nodes
         temp_W = np.zeros(self.nz + 1)
         temp_w = np.zeros(self.nz + 1)
-        for ii in range(len(cell_idx)):
-            # Get node
-            idx = cell_idx[ii]
+        np.add.at(temp_W, cell_idx, v2 * w * frac_l)
+        np.add.at(temp_w, cell_idx, w * frac_l)
+        # Get a list of all particles which are not at the last node
+        valid_idxs = cell_idx != self.nz
+        np.add.at(temp_W, cell_idx[valid_idxs] + 1, v2[valid_idxs] * w[valid_idxs] * frac_r[valid_idxs])
+        np.add.at(temp_w, cell_idx[valid_idxs] + 1, w[valid_idxs] * frac_r[valid_idxs])
 
-            if idx == self.nz:
-                # If at the last node, just add to the last node
-                temp_W[idx] += v2[ii] * w[ii]
-                temp_w[idx] += w[ii]
-            else:
-                # Weight particle to nodes
-                weight_right = z[ii] / self.dz - idx
-                weight_left = 1 - weight_right
-
-                # Multiply by weight (saves an operation to do this once)
-                w_right = weight_right * w[ii]
-                w_left = weight_left * w[ii]
-
-                # Add particle to nodes ii and ii + 1
-                temp_W[idx] += v2[ii] * w_left
-                temp_w[idx] += w_left
-                temp_W[idx + 1] += v2[ii] * w_right
-                temp_w[idx + 1] += w_right
-
-        # Note: We don't need to synchronize if all processes have particles
+       # Note: We don't need to synchronize if all processes have particles
         #       that are in the same cells... The next few lines may be worth
         #       adjusting later on.
 
@@ -1169,27 +1111,23 @@ class Diagnostics1D:
         # Get cell index of particle
         cell_idx = np.floor(z / self.dz).astype(int)
 
+        # Calculate the fractional position within the cell
+        frac_pos = (z / self.dz) - cell_idx
+
+        # Calculate weights for interpolation
+        frac_l = 1 - frac_pos
+        frac_r = frac_pos
+
         # Sort by z and assign uz to nodes
         temp_J = np.zeros(self.nz + 1)
-        for ii in range(len(cell_idx)):
-            # Get node
-            idx = cell_idx[ii]
+        np.add.at(temp_J, cell_idx, uz * w * frac_l)
+        # Get a list of all particles which are not at the last node
+        valid_idxs = cell_idx != self.nz
+        np.add.at(temp_J, cell_idx[valid_idxs] + 1, uz[valid_idxs] * w[valid_idxs] * frac_r[valid_idxs])
 
-            if idx == self.nz:
-                # If at the last node, just add to the last node
-                temp_J[idx] += uz[ii] * w[ii]
-            else:
-                # Weight particle to nodes
-                weight_right = z[ii] / self.dz - idx
-                weight_left = 1 - weight_right
-
-                # Multiply by weight
-                w_right = weight_right * w[ii]
-                w_left = weight_left * w[ii]
-
-                # Add particle to nodes ii and ii + 1
-                temp_J[idx] += uz[ii] * w_left
-                temp_J[idx + 1] += uz[ii] * w_right
+        # Future note: If we want to get rid of the dip in data reported at the first and last nodes,
+        #              we can create a mask of particles in the first and last cell and double their
+        #              contributions to the first and last node.
 
         # Note: We don't need to synchronize if all processes have particles
         #       that are in the same cells... The next few lines may be worth
@@ -1221,9 +1159,14 @@ class Diagnostics1D:
 
     def update_ICP(self, species):
         '''
-        Calculate power into plasma via an external ICP Field.
+        Calculate power into plasma via a self-consistent ICP Field.
         Needs to be multiplied by charge and divided by cell size before
         being used.
+
+        This interpolates the field to the particle positions using a linear
+        shape, similar to what WarpX does. Minor differences in the two methods
+        (e.g. I don't know exactly how WarpX interpolates for particles at the
+        boundary) may lead to slight differences from the actual power.
         '''
         # Set up wrappers
         species_wrapper = particle_containers.ParticleContainerWrapper(species)
@@ -1238,42 +1181,58 @@ class Diagnostics1D:
             w = np.array([])
             z = np.array([])
 
-        # Get cell index of particle
+        # Get the perpendicular field 
+        Ex_nodes = fields.ExFPWrapper()
+
+        # Field is on the nodes, so average it out to the cell centers
+        Ex_centers = (Ex_nodes[:-1] + Ex_nodes[1:]) / 2
+
+        # Get cell index of particles
         cell_idx = np.floor(z / self.dz).astype(int)
 
-        # Get the ICP field at the particle locations (as currently is, the field is constant when it is turned on)
-        curr_ICP_field = self.ICP_Ex_field(0.5 * (self.ICP_zmin + self.ICP_zmax))
-        ICP_Ex = np.zeros(len(z))
-        for ii in range(len(z)):
-            if z[ii] > self.ICP_zmin and z[ii] < self.ICP_zmax:
-                ICP_Ex[ii] = curr_ICP_field
-            else:
-                ICP_Ex[ii] = 0.0
+        # Calculate the fractional position within the cell
+        frac_pos = (z / self.dz) - cell_idx
 
-        # Calculate the power into the plasma
-        Pow = np.multiply(ux, ICP_Ex)
+        # Initialize the array of the field at each particle position
+        Ex_at_particle = np.zeros(len(z))
 
-        # Sort by z and assign P to nodes
-        temp_P = np.zeros(self.nz + 1)
-        for ii in range(len(cell_idx)):
-            # Get node
-            idx = cell_idx[ii]
+        # Create masks to classify the particles
+        mask_low_edge = (cell_idx == 0) & (frac_pos <= 0.5)
+        mask_high_edge = (cell_idx == self.nz - 1) & (frac_pos >= 0.5)
+        # Ensure that the edge cases are not picked up by the other masks
+        mask_before_center = (frac_pos < 0.5) & ~(mask_low_edge | mask_high_edge)
+        mask_after_center = (frac_pos >= 0.5) & ~(mask_low_edge | mask_high_edge)
 
-            if idx == self.nz:
-                # If at the last node, just add to the last node
-                temp_P[idx] += Pow[ii] * w[ii]
-            else:
-                # Weight particle to nodes
-                weight_right = z[ii] / self.dz - idx
-                weight_left = 1 - weight_right
+        # Handle particles near the low edge (index 0)
+        Ex_at_particle[mask_low_edge] = Ex_centers[cell_idx[mask_low_edge]]
 
-                # Multiply by weight
-                w_right = weight_right * w[ii]
-                w_left = weight_left * w[ii]
+        # Handle particles near the high edge (index nz - 1)
+        Ex_at_particle[mask_high_edge] = Ex_centers[cell_idx[mask_high_edge]]
 
-                # Add particle to nodes ii and ii + 1
-                temp_P[idx] += Pow[ii] * w_left
-                temp_P[idx + 1] += Pow[ii] * w_right
+        # Handle particles before the center of the cell
+        rel_position_before = frac_pos[mask_before_center] + 0.5
+        Ex_at_particle[mask_before_center] = (
+            Ex_centers[cell_idx[mask_before_center] - 1] +
+            (Ex_centers[cell_idx[mask_before_center]] - Ex_centers[cell_idx[mask_before_center] - 1]) * rel_position_before
+        )
+
+        # Handle particles after the center of the cell
+        rel_position_after = frac_pos[mask_after_center] - 0.5
+        Ex_at_particle[mask_after_center] = (
+            Ex_centers[cell_idx[mask_after_center]] +
+            (Ex_centers[cell_idx[mask_after_center] + 1] - Ex_centers[cell_idx[mask_after_center]]) * rel_position_after
+        )
+
+        # # Commenting this out, but writing out how to do a linear interpolation
+        # # for the external particles, incase I find out this is what WarpX does
+        # first_position = 1.5 - frac_pos
+        # Ex_at_particle[first_parts] = Ex_centers[1] - (Ex_centers[1] - Ex_centers[0]) * first_position
+        # end_position = 0.5 + frac_pos
+        # Ex_at_particle[end_parts] = Ex_centers[self.nz - 1] + (Ex_centers[self.nz] - Ex_centers[self.nz - 1]) * end_position
+
+        # Sort by z and assign power input to cells
+        temp_P = np.zeros(self.nz)
+        np.add.at(temp_P, cell_idx, ux * Ex_at_particle * w)
 
         # Note: We don't need to synchronize if all processes have particles
         #       that are in the same cells... The next few lines may be worth
