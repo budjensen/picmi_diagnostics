@@ -348,9 +348,11 @@ class Diagnostics1D:
                 'W_i': False,
                 'Jze': False,
                 'Jzi': False,
+                'J_d': False,
+                'CPe': False,
+                'CPi': False,
                 'IPe': False,
-                'IPi': False,
-                'J_d': False
+                'IPi': False
             },
             'time_resolved': {
                 'N_i': True,
@@ -361,9 +363,11 @@ class Diagnostics1D:
                 'W_i': True,
                 'Jze': True,
                 'Jzi': True,
+                'J_d': True,
+                'CPe': False,
+                'CPi': False,
                 'IPe': False,
-                'IPi': False,
-                'J_d': True
+                'IPi': False
             },
             'interval': {
                 'N_i': False,
@@ -374,9 +378,11 @@ class Diagnostics1D:
                 'W_i': False,
                 'Jze': False,
                 'Jzi': False,
+                'J_d': False,
+                'CPe': False,
+                'CPi': False,
                 'IPe': False,
-                'IPi': False,
-                'J_d': False
+                'IPi': False
             },
             'time_resolved_power': {
                 'Pin_vst': False,
@@ -403,9 +409,11 @@ class Diagnostics1D:
                 'W_i': False,
                 'Jze': False,
                 'Jzi': False,
+                'J_d': False,
+                'CPe': False,
+                'CPi': False,
                 'IPe': False,
-                'IPi': False,
-                'J_d': False
+                'IPi': False
             }
             time_resolved_dict = {
                 'N_i': True,
@@ -416,9 +424,11 @@ class Diagnostics1D:
                 'W_i': True,
                 'Jze': True,
                 'Jzi': True,
+                'J_d': True,
+                'CPe': False,
+                'CPi': False,
                 'IPe': False,
-                'IPi': False,
-                'J_d': True
+                'IPi': False
             }
             interval_dict = {
                 'N_i': False,
@@ -429,9 +439,11 @@ class Diagnostics1D:
                 'W_i': False,
                 'Jze': False,
                 'Jzi': False,
+                'J_d': False,
+                'CPe': False,
+                'CPi': False,
                 'IPe': False,
-                'IPi': False,
-                'J_d': False
+                'IPi': False
             }
             self.tr_power_dict = {
                 'Pin_vst': False,
@@ -595,9 +607,11 @@ class Diagnostics1D:
         self.tr_phi = None
         self.tr_Jze = None
         self.tr_Jzi = None
+        self.tr_J_d = None
+        self.tr_CPe = None
+        self.tr_CPi = None
         self.tr_IPe = None
         self.tr_IPi = None
-        self.tr_J_d = None
         self.tr_times = None
 
         # Power arrays
@@ -616,9 +630,11 @@ class Diagnostics1D:
         self.ta_phi = None
         self.ta_Jze = None
         self.ta_Jzi = None
+        self.ta_J_d = None
+        self.ta_CPe = None
+        self.ta_CPi = None
         self.ta_IPe = None
         self.ta_IPi = None
-        self.ta_J_d = None
         self.ta_times = None
 
         # Interval arrays
@@ -630,9 +646,11 @@ class Diagnostics1D:
         self.in_phi = [None for _ in range(len(self.in_slices))]
         self.in_Jze = [None for _ in range(len(self.in_slices))]
         self.in_Jzi = [None for _ in range(len(self.in_slices))]
+        self.in_J_d = [None for _ in range(len(self.in_slices))]
+        self.in_CPe = [None for _ in range(len(self.in_slices))]
+        self.in_CPi = [None for _ in range(len(self.in_slices))]
         self.in_IPe = [None for _ in range(len(self.in_slices))]
         self.in_IPi = [None for _ in range(len(self.in_slices))]
-        self.in_J_d = [None for _ in range(len(self.in_slices))]
 
         # Single diagnostic output arrays
         # Array of diagnostic species indices
@@ -661,10 +679,15 @@ class Diagnostics1D:
             self.J_d.append(np.zeros(self.nz + 1))
         self.J_d = np.stack(self.J_d)
 
-        self.P = []
+        self.P_C = []
         for i in range(len(self.species_names)):
-            self.P.append(np.zeros(self.nz))
-        self.P = np.stack(self.P)
+            self.P_C.append(np.zeros(self.nz))
+        self.P_C = np.stack(self.P_C)
+
+        self.P_I = []
+        for i in range(len(self.species_names)):
+            self.P_I.append(np.zeros(self.nz))
+        self.P_I = np.stack(self.P_I)
 
         self.E = np.zeros(self.nz + 1)
         self.phi = np.zeros(self.nz + 1)
@@ -1157,7 +1180,7 @@ class Diagnostics1D:
         phi_wrapper = fields.PhiFPWrapper()
         self.phi = phi_wrapper[...]
 
-    def update_ICP(self, species):
+    def update_P_I(self, species):
         '''
         Calculate power into plasma via a self-consistent ICP Field.
         Needs to be multiplied by charge and divided by cell size before
@@ -1198,16 +1221,19 @@ class Diagnostics1D:
 
         # Create masks to classify the particles
         mask_low_edge = (cell_idx == 0) & (frac_pos <= 0.5)
-        mask_high_edge = (cell_idx == self.nz - 1) & (frac_pos >= 0.5)
+        mask_high_edge = (cell_idx == self.nz - 1) & (frac_pos >= 0.5) | (cell_idx == self.nz)
         # Ensure that the edge cases are not picked up by the other masks
         mask_before_center = (frac_pos < 0.5) & ~(mask_low_edge | mask_high_edge)
         mask_after_center = (frac_pos >= 0.5) & ~(mask_low_edge | mask_high_edge)
 
         # Handle particles near the low edge (index 0)
-        Ex_at_particle[mask_low_edge] = Ex_centers[cell_idx[mask_low_edge]]
+        Ex_at_particle[mask_low_edge] = Ex_centers[0]
 
-        # Handle particles near the high edge (index nz - 1)
-        Ex_at_particle[mask_high_edge] = Ex_centers[cell_idx[mask_high_edge]]
+        # Handle particles near the high edge (index nz - 1) and
+        # revert all cell indices at the high edge to the last cell (this
+        # prevents out of bounds errors for particles exactly at the boundary)
+        cell_idx[mask_high_edge] = self.nz - 1
+        Ex_at_particle[mask_high_edge] = Ex_centers[self.nz - 1]
 
         # Handle particles before the center of the cell
         rel_position_before = frac_pos[mask_before_center] + 0.5
@@ -1228,7 +1254,7 @@ class Diagnostics1D:
         # first_position = 1.5 - frac_pos
         # Ex_at_particle[first_parts] = Ex_centers[1] - (Ex_centers[1] - Ex_centers[0]) * first_position
         # end_position = 0.5 + frac_pos
-        # Ex_at_particle[end_parts] = Ex_centers[self.nz - 1] + (Ex_centers[self.nz] - Ex_centers[self.nz - 1]) * end_position
+        # Ex_at_particle[end_parts] = Ex_centers[self.nz - 2] + (Ex_centers[self.nz - 1] - Ex_centers[self.nz - 2]) * end_position
 
         # Sort by z and assign power input to cells
         temp_P = np.zeros(self.nz)
@@ -1246,7 +1272,98 @@ class Diagnostics1D:
         idx = self.diag_idx_by_name[species]
 
         # Report the temperature
-        self.P[idx] = P_data
+        self.P_I[idx] = P_data
+
+    def update_P_C(self, species):
+        '''
+        Calculate power into plasma via capacitive heating. Needs to be
+        multiplied by charge and divided by cell size before being used.
+
+        This interpolates the field to the particle positions using a linear
+        shape, similar to what WarpX does. Minor differences in the two methods
+        (e.g. I don't know exactly how WarpX interpolates for particles at the
+        boundary) may lead to slight differences from the actual power.
+        '''
+        # Set up wrappers
+        species_wrapper = particle_containers.ParticleContainerWrapper(species)
+
+        # Get particle velocities
+        try:
+            uz = np.concatenate(species_wrapper.get_particle_uz())
+            w = np.concatenate(species_wrapper.get_particle_weight())
+            z = np.concatenate(species_wrapper.get_particle_z())
+        except ValueError:
+            uz = np.array([])
+            w = np.array([])
+            z = np.array([])
+
+        # Get the perpendicular field (on the cell centers)
+        Ez_centers = fields.EzFPWrapper()
+        Ez_centers = Ez_centers[...]
+
+        # Get cell index of particles
+        cell_idx = np.floor(z / self.dz).astype(int)
+
+        # Calculate the fractional position within the cell
+        frac_pos = (z / self.dz) - cell_idx
+
+        # Initialize the array of the field at each particle position
+        Ez_at_particle = np.zeros(len(z))
+
+        # Create masks to classify the particles
+        mask_low_edge = (cell_idx == 0) & (frac_pos <= 0.5)
+        mask_high_edge = (cell_idx == self.nz - 1) & (frac_pos >= 0.5) | (cell_idx == self.nz)
+        # Ensure that the edge cases are not picked up by the other masks
+        mask_before_center = (frac_pos < 0.5) & ~(mask_low_edge | mask_high_edge)
+        mask_after_center = (frac_pos >= 0.5) & ~(mask_low_edge | mask_high_edge)
+
+        # Handle particles near the low edge (index 0)
+        Ez_at_particle[mask_low_edge] = Ez_centers[0]
+
+        # Handle particles near the high edge (index nz - 1) and
+        # revert all cell indices at the high edge to the last cell (this
+        # prevents out of bounds errors for particles exactly at the boundary)
+        cell_idx[mask_high_edge] = self.nz - 1
+        Ez_at_particle[mask_high_edge] = Ez_centers[self.nz - 1]
+
+        # Handle particles before the center of the cell
+        rel_position_before = frac_pos[mask_before_center] + 0.5
+        Ez_at_particle[mask_before_center] = (
+            Ez_centers[cell_idx[mask_before_center] - 1] +
+            (Ez_centers[cell_idx[mask_before_center]] - Ez_centers[cell_idx[mask_before_center] - 1]) * rel_position_before
+        )
+
+        # Handle particles after the center of the cell
+        rel_position_after = frac_pos[mask_after_center] - 0.5
+        Ez_at_particle[mask_after_center] = (
+            Ez_centers[cell_idx[mask_after_center]] +
+            (Ez_centers[cell_idx[mask_after_center] + 1] - Ez_centers[cell_idx[mask_after_center]]) * rel_position_after
+        )
+
+        # # Commenting this out, but writing out how to do a linear interpolation
+        # # for the external particles, incase I find out this is what WarpX does
+        # first_position = 1.5 - frac_pos
+        # Ex_at_particle[first_parts] = Ex_centers[1] - (Ex_centers[1] - Ex_centers[0]) * first_position
+        # end_position = 0.5 + frac_pos
+        # Ex_at_particle[end_parts] = Ex_centers[self.nz - 2] + (Ex_centers[self.nz - 1] - Ex_centers[self.nz - 2]) * end_position
+
+        # Sort by z and assign power input to cells
+        temp_P = np.zeros(self.nz)
+        np.add.at(temp_P, cell_idx, uz * Ez_at_particle * w)
+
+        # Note: We don't need to synchronize if all processes have particles
+        #       that are in the same cells... The next few lines may be worth
+        #       adjusting later on.
+
+        # Send temp_P to all processes
+        P_data = np.zeros_like(temp_P)
+        comm.Allreduce(temp_P, P_data, op=mpi.SUM)
+
+        # Get index of species array in stack
+        idx = self.diag_idx_by_name[species]
+
+        # Report the temperature
+        self.P_C[idx] = P_data
 
     def update_J_d(self):
         '''
@@ -1478,22 +1595,32 @@ class Diagnostics1D:
                     self.tr_Jzi = self.J[1]
                 else:
                     self.tr_Jzi = np.vstack((self.tr_Jzi, self.J[1]))
-            if temp_settings['IPe']:
-                if self.tr_IPe is None:
-                    self.tr_IPe = self.P[0]
-                else:
-                    self.tr_IPe = np.vstack((self.tr_IPe, self.P[0]))
-            if temp_settings['IPi']:
-                if self.tr_IPi is None:
-                    self.tr_IPi = self.P[1]
-                else:
-                    self.tr_IPi = np.vstack((self.tr_IPi, self.P[1]))
             if temp_settings['J_d']:
                 if self.tr_J_d is None:
                     self.tr_J_d = self.J_d
                 else:
                     self.tr_J_d = np.vstack((self.tr_J_d, self.J_d))
-            
+            if temp_settings['CPe']:
+                if self.tr_CPe is None:
+                    self.tr_CPe = self.P_C[0]
+                else:
+                    self.tr_CPe = np.vstack((self.tr_CPe, self.P_C[0]))
+            if temp_settings['CPi']:
+                if self.tr_CPi is None:
+                    self.tr_CPi = self.P_C[1]
+                else:
+                    self.tr_CPi = np.vstack((self.tr_CPi, self.P_C[1]))
+            if temp_settings['IPe']:
+                if self.tr_IPe is None:
+                    self.tr_IPe = self.P_I[0]
+                else:
+                    self.tr_IPe = np.vstack((self.tr_IPe, self.P_I[0]))
+            if temp_settings['IPi']:
+                if self.tr_IPi is None:
+                    self.tr_IPi = self.P_I[1]
+                else:
+                    self.tr_IPi = np.vstack((self.tr_IPi, self.P_I[1]))
+
             # Append the time to the array
             if self.tr_times is None:
                 self.tr_times = np.array([self.sim_ext.warpx.gett_new(lev=0)])
@@ -1547,21 +1674,31 @@ class Diagnostics1D:
                     self.ta_Jzi = self.J[1]
                 else:
                     self.ta_Jzi = np.vstack((self.ta_Jzi, self.J[1]))
-            if temp_settings['IPe']:
-                if self.ta_IPe is None:
-                    self.ta_IPe = self.P[0]
-                else:
-                    self.ta_IPe = np.vstack((self.ta_IPe, self.P[0]))
-            if temp_settings['IPi']:
-                if self.ta_IPi is None:
-                    self.ta_IPi = self.P[1]
-                else:
-                    self.ta_IPi = np.vstack((self.ta_IPi, self.P[1]))
             if temp_settings['J_d']:
                 if self.ta_J_d is None:
                     self.ta_J_d = self.J_d
                 else:
                     self.ta_J_d = np.vstack((self.ta_J_d, self.J_d))
+            if temp_settings['CPe']:
+                if self.ta_CPe is None:
+                    self.ta_CPe = self.P_C[0]
+                else:
+                    self.ta_CPe = np.vstack((self.ta_CPe, self.P_C[0]))
+            if temp_settings['CPi']:
+                if self.ta_CPi is None:
+                    self.ta_CPi = self.P_C[1]
+                else:
+                    self.ta_CPi = np.vstack((self.ta_CPi, self.P_C[1]))
+            if temp_settings['IPe']:
+                if self.ta_IPe is None:
+                    self.ta_IPe = self.P_I[0]
+                else:
+                    self.ta_IPe = np.vstack((self.ta_IPe, self.P_I[0]))
+            if temp_settings['IPi']:
+                if self.ta_IPi is None:
+                    self.ta_IPi = self.P_I[1]
+                else:
+                    self.ta_IPi = np.vstack((self.ta_IPi, self.P_I[1]))
 
         def do_interval_diagnostics(interval_idx):
             '''
@@ -1616,21 +1753,31 @@ class Diagnostics1D:
                     self.in_Jzi[interval_idx] = self.J[1]
                 else:
                     self.in_Jzi[interval_idx] = np.vstack((self.in_Jzi[interval_idx], self.J[1]))
-            if temp_settings['IPe']:
-                if self.in_IPe[interval_idx] is None:
-                    self.in_IPe[interval_idx] = self.P[0]
-                else:
-                    self.in_IPe[interval_idx] = np.vstack((self.in_IPe[interval_idx], self.P[0]))
-            if temp_settings['IPi']:
-                if self.in_IPi[interval_idx] is None:
-                    self.in_IPi[interval_idx] = self.P[1]
-                else:
-                    self.in_IPi[interval_idx] = np.vstack((self.in_IPi[interval_idx], self.P[1]))
             if temp_settings['J_d']:
                 if self.in_J_d[interval_idx] is None:
                     self.in_J_d[interval_idx] = self.J_d
                 else:
                     self.in_J_d[interval_idx] = np.vstack((self.in_J_d[interval_idx], self.J_d))
+            if temp_settings['CPe']:
+                if self.in_CPe[interval_idx] is None:
+                    self.in_CPe[interval_idx] = self.P_C[0]
+                else:
+                    self.in_CPe[interval_idx] = np.vstack((self.in_CPe[interval_idx], self.P_C[0]))
+            if temp_settings['CPi']:
+                if self.in_CPi[interval_idx] is None:
+                    self.in_CPi[interval_idx] = self.P_C[1]
+                else:
+                    self.in_CPi[interval_idx] = np.vstack((self.in_CPi[interval_idx], self.P_C[1]))
+            if temp_settings['IPe']:
+                if self.in_IPe[interval_idx] is None:
+                    self.in_IPe[interval_idx] = self.P_I[0]
+                else:
+                    self.in_IPe[interval_idx] = np.vstack((self.in_IPe[interval_idx], self.P_I[0]))
+            if temp_settings['IPi']:
+                if self.in_IPi[interval_idx] is None:
+                    self.in_IPi[interval_idx] = self.P_I[1]
+                else:
+                    self.in_IPi[interval_idx] = np.vstack((self.in_IPi[interval_idx], self.P_I[1]))
 
             # Add one to the number of collections for this interval
             self.num_in_collections_this_output[interval_idx] += 1
@@ -1743,9 +1890,11 @@ class Diagnostics1D:
             if any(dict.get('phi') for dict in self.master_diagnostic_dict.values()): self.update_phi()
             if any(dict.get('Jze') for dict in self.master_diagnostic_dict.values()): self.update_Jz(self.species_names[0])
             if any(dict.get('Jzi') for dict in self.master_diagnostic_dict.values()): self.update_Jz(self.species_names[1])
-            if any(dict.get('IPe') for dict in self.master_diagnostic_dict.values()): self.update_ICP(self.species_names[0])
-            if any(dict.get('IPi') for dict in self.master_diagnostic_dict.values()): self.update_ICP(self.species_names[1])
             if any(dict.get('J_d') for dict in self.master_diagnostic_dict.values()): self.update_J_d()
+            if any(dict.get('CPe') for dict in self.master_diagnostic_dict.values()): self.update_P_C(self.species_names[0])
+            if any(dict.get('CPi') for dict in self.master_diagnostic_dict.values()): self.update_P_C(self.species_names[1])
+            if any(dict.get('IPe') for dict in self.master_diagnostic_dict.values()): self.update_P_I(self.species_names[0])
+            if any(dict.get('IPi') for dict in self.master_diagnostic_dict.values()): self.update_P_I(self.species_names[1])
 
         # Perform diagnostics
         if time_resolved:
@@ -1876,9 +2025,11 @@ class Diagnostics1D:
         self.tr_phi = None
         self.tr_Jze = None
         self.tr_Jzi = None
+        self.tr_J_d = None
+        self.tr_CPe = None
+        self.tr_CPi = None
         self.tr_IPe = None
         self.tr_IPi = None
-        self.tr_J_d = None
         self.tr_times = None
 
         # Power arrays
@@ -1897,9 +2048,11 @@ class Diagnostics1D:
         self.ta_phi = None
         self.ta_Jze = None
         self.ta_Jzi = None
+        self.ta_J_d = None
+        self.ta_CPe = None
+        self.ta_CPi = None
         self.ta_IPe = None
         self.ta_IPi = None
-        self.ta_J_d = None
         self.ta_times = None
 
         # Interval arrays
@@ -1911,9 +2064,11 @@ class Diagnostics1D:
         self.in_phi = [None for _ in range(len(self.in_slices))]
         self.in_Jze = [None for _ in range(len(self.in_slices))]
         self.in_Jzi = [None for _ in range(len(self.in_slices))]
+        self.in_J_d = [None for _ in range(len(self.in_slices))]
+        self.in_CPe = [None for _ in range(len(self.in_slices))]
+        self.in_CPi = [None for _ in range(len(self.in_slices))]
         self.in_IPe = [None for _ in range(len(self.in_slices))]
         self.in_IPi = [None for _ in range(len(self.in_slices))]
-        self.in_J_d = [None for _ in range(len(self.in_slices))]
 
     ###########################################################################
     # Saving Functions                                                        #
@@ -1959,14 +2114,20 @@ class Diagnostics1D:
             if active['Jzi']:
                 Jz_factor = self.charge_by_name[species[1]] / self.dz
                 self.tr_Jzi *= Jz_factor
+            if active['J_d']:
+                self.tr_J_d *= constants.ep0 / self.dt
+            if active['CPe']:
+                CP_factor = self.charge_by_name[species[0]] / self.dz
+                self.tr_CPe *= CP_factor
+            if active['CPi']:
+                CP_factor = self.charge_by_name[species[1]] / self.dz
+                self.tr_CPi *= CP_factor
             if active['IPe']:
                 IP_factor = self.charge_by_name[species[0]] / self.dz
                 self.tr_IPe *= IP_factor
             if active['IPi']:
                 IP_factor = self.charge_by_name[species[1]] / self.dz
                 self.tr_IPi *= IP_factor
-            if active['J_d']:
-                self.tr_J_d *= constants.ep0 / self.dt
             
             # Grab temporary dictionary for power diagnostics
             active = self.tr_power_dict
@@ -2033,6 +2194,20 @@ class Diagnostics1D:
                 self.ta_Jzi = np.sum(self.ta_Jzi, axis=0) / collections
                 Jz_factor = self.charge_by_name[species[1]] / self.dz
                 self.ta_Jzi *= Jz_factor
+            if active['J_d']:
+                collections = len(self.ta_J_d)
+                self.ta_J_d = np.sum(self.ta_J_d, axis=0) / collections
+                self.ta_J_d *= constants.ep0 / self.dt
+            if active['CPe']:
+                collections = len(self.ta_CPe)
+                self.ta_CPe = np.sum(self.ta_CPe, axis=0) / collections
+                CP_factor = self.charge_by_name[species[0]] / self.dz
+                self.ta_CPe *= CP_factor
+            if active['CPi']:
+                collections = len(self.ta_CPi)
+                self.ta_CPi = np.sum(self.ta_CPi, axis=0) / collections
+                CP_factor = self.charge_by_name[species[1]] / self.dz
+                self.ta_CPi *= CP_factor
             if active['IPe']:
                 collections = len(self.ta_IPe)
                 self.ta_IPe = np.sum(self.ta_IPe, axis=0) / collections
@@ -2043,10 +2218,6 @@ class Diagnostics1D:
                 self.ta_IPi = np.sum(self.ta_IPi, axis=0) / collections
                 IP_factor = self.charge_by_name[species[1]] / self.dz
                 self.ta_IPi *= IP_factor
-            if active['J_d']:
-                collections = len(self.ta_J_d)
-                self.ta_J_d = np.sum(self.ta_J_d, axis=0) / collections
-                self.ta_J_d *= constants.ep0 / self.dt
             
             # Grab temporary dictionary for interval diagnostics
             active = self.master_diagnostic_dict['interval']
@@ -2206,6 +2377,23 @@ class Diagnostics1D:
                         else:
                             self.in_Jzi[ii] = np.sum(self.in_Jzi[ii], axis=0) / self.num_in_collections_this_output[ii]
                             self.in_Jzi[ii] *= Jz_factor
+            if active['J_d']:
+                if len(self.in_slices) == 1:
+                    if self.num_in_collections_this_output[0] == 0:
+                        pass
+                    elif self.num_in_collections_this_output[0] == 1:
+                        self.in_J_d = np.array(self.in_J_d[1]) * (constants.ep0 / self.dt)
+                    else:
+                        collections = len(self.in_J_d)
+                        self.in_J_d = np.sum(self.in_J_d, axis=0) / collections * (constants.ep0 / self.dt)
+                else:
+                    for ii in range(len(self.in_slices)):
+                        if self.num_in_collections_this_output[ii] == 0:
+                            pass
+                        elif self.num_in_collections_this_output[ii] == 1:
+                            self.in_J_d[ii] = np.array(self.in_J_d[ii]) * (constants.ep0 / self.dt)
+                        else:
+                            self.in_J_d[ii] = np.sum(self.in_J_d[ii], axis=0) / self.num_in_collections_this_output[ii] * (constants.ep0 / self.dt)
             if active['IPe']:
                 IP_factor = self.charge_by_name[species[0]] / self.dz
                 if len(self.in_slices) == 1:
@@ -2246,23 +2434,46 @@ class Diagnostics1D:
                         else:
                             self.in_IPi[ii] = np.sum(self.in_IPi[ii], axis=0) / self.num_in_collections_this_output[ii]
                             self.in_IPi[ii] *= IP_factor
-            if active['J_d']:
+            if active['CPe']:
+                CP_factor = self.charge_by_name[species[0]] / self.dz
                 if len(self.in_slices) == 1:
                     if self.num_in_collections_this_output[0] == 0:
                         pass
                     elif self.num_in_collections_this_output[0] == 1:
-                        self.in_J_d = np.array(self.in_J_d[1]) * (constants.ep0 / self.dt)
+                        self.in_CPe = np.array(self.in_CPe[1]) * CP_factor
                     else:
-                        collections = len(self.in_J_d)
-                        self.in_J_d = np.sum(self.in_J_d, axis=0) / collections * (constants.ep0 / self.dt)
+                        collections = len(self.in_CPe)
+                        self.in_CPe = np.sum(self.in_CPe, axis=0) / collections
+                        self.in_CPe *= CP_factor
                 else:
                     for ii in range(len(self.in_slices)):
                         if self.num_in_collections_this_output[ii] == 0:
                             pass
                         elif self.num_in_collections_this_output[ii] == 1:
-                            self.in_J_d[ii] = np.array(self.in_J_d[ii]) * (constants.ep0 / self.dt)
+                            self.in_CPe[ii] = np.array(self.in_CPe[ii]) * CP_factor
                         else:
-                            self.in_J_d[ii] = np.sum(self.in_J_d[ii], axis=0) / self.num_in_collections_this_output[ii] * (constants.ep0 / self.dt)
+                            self.in_CPe[ii] = np.sum(self.in_CPe[ii], axis=0) / self.num_in_collections_this_output[ii]
+                            self.in_CPe[ii] *= CP_factor
+            if active['CPi']:
+                CP_factor = self.charge_by_name[species[1]] / self.dz
+                if len(self.in_slices) == 1:
+                    if self.num_in_collections_this_output[0] == 0:
+                        pass
+                    elif self.num_in_collections_this_output[0] == 1:
+                        self.in_CPi = np.array(self.in_CPi[1]) * CP_factor
+                    else:
+                        collections = len(self.in_CPi)
+                        self.in_CPi = np.sum(self.in_CPi, axis=0) / collections
+                        self.in_CPi *= CP_factor
+                else:
+                    for ii in range(len(self.in_slices)):
+                        if self.num_in_collections_this_output[ii] == 0:
+                            pass
+                        elif self.num_in_collections_this_output[ii] == 1:
+                            self.in_CPi[ii] = np.array(self.in_CPi[ii]) * CP_factor
+                        else:
+                            self.in_CPi[ii] = np.sum(self.in_CPi[ii], axis=0) / self.num_in_collections_this_output[ii]
+                            self.in_CPi[ii] *= CP_factor
 
         # Send ionization data to rank 0
         if self.Riz_switch and self.Riz_diag_counter == self.diag_collections_per_Riz:

@@ -13,6 +13,9 @@ class Analysis:
         directory : str
             The directory of the diagnostics data
         '''
+        # Set the list of diagnostics that plot on the cells
+        self.cell_diags = ['E_z', 'J_d', 'CPe', 'CPi', 'IPe', 'IPi']
+
         # Get the absolute path of the directory
         self.directory = os.path.abspath(directory)
         self.dir = os.listdir(directory)
@@ -966,7 +969,7 @@ class Analysis:
         if field not in self.avg_in_data:
             self.avg_intervals(field)
         fig, ax = plt.subplots(1,1, dpi=dpi)
-        if field == 'E_z' or field == 'J_d':
+        if field in self.cell_diags:
             x = self.cells
         else:
             x = self.nodes
@@ -1188,7 +1191,7 @@ class Analysis:
         if field not in self.avg_tr_collection_data:
             self.avg_time_resolved_collections(field)
         fig, ax = plt.subplots(1,1, dpi=dpi)
-        if field == 'E_z' or field == 'J_d':
+        if field in self.cell_diags:
             x = self.cells
         else:
             x = self.nodes
@@ -1245,7 +1248,7 @@ class Analysis:
         if field not in self.avg_tr_data:
             self.avg_time_resolved(field)
         fig, ax = plt.subplots(1,1, dpi=dpi)
-        if field == 'E_z' or field == 'J_d':
+        if field in self.cell_diags:
             x = self.cells
         else:
             x = self.nodes
@@ -1288,7 +1291,7 @@ class Analysis:
             self.load_time_resolved(field)
 
         fig, ax = plt.subplots(1,1, dpi=dpi)
-        if field == 'E_z' or field == 'J_d':
+        if field in self.cell_diags:
             x = self.cells
         else:
             x = self.nodes

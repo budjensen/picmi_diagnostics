@@ -92,9 +92,11 @@ class CapacitiveDischargeExample(object):
             'W_i': False,
             'Jze': False,
             'Jzi': False,
+            'J_d': False,
+            'CPe': False,
+            'CPi': False,
             'IPe': False,
-            'IPi': False,
-            'J_d': False
+            'IPi': False
         },
         'time_resolved': {
             'N_i': True,
@@ -105,9 +107,11 @@ class CapacitiveDischargeExample(object):
             'W_i': True,
             'Jze': True,
             'Jzi': True,
+            'J_d': True,
+            'CPe': False,
+            'CPi': False,
             'IPe': False,
             'IPi': False,
-            'J_d': False
         },
         'interval': {
             'N_i': False,
@@ -118,9 +122,11 @@ class CapacitiveDischargeExample(object):
             'W_i': False,
             'Jze': False,
             'Jzi': False,
+            'J_d': False,
+            'CPe': False,
+            'CPi': False,
             'IPe': False,
-            'IPi': False,
-            'J_d': False
+            'IPi': False
         },
         'time_resolved_power': {
             'Pin_vst': False,
