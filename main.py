@@ -163,11 +163,9 @@ class ICPHeatSource:
         # Import simulation parameters
         self.diag_time         = simulation_obj.diag_time
         self.evolve_time       = simulation_obj.evolve_time
-        self.convergence_time  = simulation_obj.convergence_time
 
         self.num_outputs       = simulation_obj.num_diag_steps
         self.max_output_idx    = self.num_outputs - 1
-        self.max_steps         = simulation_obj.max_steps
 
         self.diag_start        = simulation_obj.diag_start
         self.diag_stop         = simulation_obj.diag_stop
@@ -304,8 +302,9 @@ class Diagnostics1D:
                 ):
         '''
         Class to perform diagnostics in 1D WarpX simulations. Make sure
-        to initialize after installing all other diagnostics or
-        checkpoints, since we initialize the inputs and warpx here.
+        to install all native WarpX diagnostics and checkpoints and do
+        initialize_inputs() and initialize_warpx() before initializing
+        this class.
 
         Parameters
         ----------
@@ -460,10 +459,6 @@ class Diagnostics1D:
             interval_dict = switches['interval']
             self.tr_power_dict = switches['time_resolved_power']
 
-        # Initialize simulation
-        simulation_obj.sim.initialize_inputs()
-        simulation_obj.sim.initialize_warpx()
-
         # Import simulation parameters
         self.m_ion = simulation_obj.m_ion
         self.rf_period = 1 / simulation_obj.freq
@@ -484,12 +479,7 @@ class Diagnostics1D:
         #  2. Time resolved
         #  3. Interval sliced
 
-        if restart_checkpoint:
-            self.convergence_time = self.sim_ext.warpx.gett_new(lev=0) + simulation_obj.convergence_time
-            self.max_time = self.sim_ext.warpx.gett_new(lev=0) + simulation_obj.total_time
-        else:
-            self.convergence_time = simulation_obj.convergence_time
-            self.max_time = simulation_obj.total_time
+        self.restart_checkpoint = restart_checkpoint
 
         self.in_period = self.rf_period
         if interval_times is None:
@@ -727,7 +717,7 @@ class Diagnostics1D:
         self.Riz_diag_counter = 0
         self.Riz_max_output = self.num_outputs // self.diag_collections_per_Riz
         self.Riz_current_output = 1
-        self.Riz_start_time = self.convergence_time
+        self.Riz_start_time = self.diag_start_time
 
         # Calculate the unit size for time and space discretization
         self.Riz_dz = self.dz
@@ -778,11 +768,18 @@ class Diagnostics1D:
             Object of the main simulation class
         '''
         # Import simulation parameters
+        if self.restart_checkpoint:
+            self.max_time = self.sim_ext.warpx.gett_new(lev=0) + simulation_obj.total_time
+        else:
+            self.max_time = simulation_obj.total_time
+
         self.diag_time         = simulation_obj.diag_time
         self.evolve_time       = simulation_obj.evolve_time
 
         self.diag_start        = simulation_obj.diag_start
         self.diag_stop         = simulation_obj.diag_stop
+
+        self.diag_start_time   = self.diag_start[0] * self.dt
 
     def _get_interval_collection_steps(self):
         '''
@@ -790,7 +787,7 @@ class Diagnostics1D:
         - self.time_for_interval_collection: time for interval diagnostics
         '''
         # Get first set of collection times after convergence
-        num_periods = self.convergence_time // self.in_period
+        num_periods = self.diag_start_time // self.in_period
         first_collection_times = (num_periods + self.in_slices) * self.in_period
         
         # Make sure collection steps are after convergence
@@ -880,7 +877,7 @@ class Diagnostics1D:
 
             f.write('Diagnostic Parameters\n')
             f.write('---------------------\n')
-            f.write(f'Convergence time [s]={self.convergence_time}\n')
+            f.write(f'Diagnostics start time [s]={self.diag_start_time}\n')
             f.write(f'Diagnostic time [s]={self.diag_time}\n')
             f.write(f'Evolve time [s]={self.evolve_time}\n\n')
             

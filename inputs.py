@@ -29,7 +29,7 @@ class CapacitiveDischargeExample(object):
     voltage         = 0.0                               # V
     voltage_rf      = 50.0                              # V
 
-    flag_ICP_heat   = False                              # Switch to add self-consistent ICP heating
+    flag_ICP_heat   = False                             # Switch to add self-consistent ICP heating
     ICP_Jmag        = 100.0                             # [A/m^2]
     ICP_freq        = 10e6                              # [Hz]
     ICP_zmin        = 0                                 # [m]
@@ -44,7 +44,7 @@ class CapacitiveDischargeExample(object):
 
     seed_nppc       = 64                                # Number of particles per cell
 
-    iedf_max_eV     = 40                               # Maximum energy for ion energy distribution function [eV]
+    iedf_max_eV     = 40                                # Maximum energy for ion energy distribution function [eV]
     num_bins        = 120                               # Number of bins for ion energy distribution function
 
     lambda_De       = np.sqrt(constants.ep0 * constants.kb * 2 * elec_temp / (2 * plasma_density * constants.q_e**2))
@@ -53,19 +53,24 @@ class CapacitiveDischargeExample(object):
     dz              = lambda_De / 2                     # Cell size
     nz              = int(gap / dz)                     # Number of cells
 
-    dt              = 1.0 / (5 * omega_p)              # [s]
+    dt              = 1.0 / (5 * omega_p)               # [s]
 
-    convergence_time = 5 / freq                      # Convergence time
+    convergence_time = 5 / freq                         # Convergence time
     evolve_time = 0.0# / freq                           # Time to evolve between diagnostic evaluations
-    diag_time = 10 / freq                         # Time of diagnostic evaluations
+    diag_time = 10 / freq                               # Time of diagnostic evaluations
 
-    num_diag_steps = 2                                 # Number of diagnostic evaluations
-    collections_per_diag_step = 400                    # Number of collections per diagnostic evaluation for time resolved diagnostics
-    interval_diag_times = [0, 0.25, 0.5, 0.75]    # Times to evaluate interval diagnostics (as a fraction of the RF period), if turned on
-    Riz_collection_time = diag_time                      # Time to run ionization rate diagnostics
+    num_diag_steps = 2                                  # Number of diagnostic evaluations
+    collections_per_diag_step = 400                     # Number of collections per diagnostic evaluation for time resolved diagnostics
+    interval_diag_times = [0, 0.25, 0.5, 0.75]          # Times to evaluate interval diagnostics (as a fraction of the RF period), if turned on
+    Riz_collection_time = diag_time                     # Time to run ionization rate diagnostics
+
+    restart_checkpoint = False                          # Restart from checkpoint
+    path_to_checkpoint = 'checkpoints/chkpt00000000'    # Path to desired checkpoint directory ending with the step number
 
     # Total simulation time in seconds
     total_time = convergence_time + num_diag_steps * (diag_time + evolve_time)
+
+    bonus_steps        = 4                              # Number of extra steps to run after the last diagnostic ends (to ensure everything is saved)
 
     # blocking_factor = 32
 
@@ -139,20 +144,23 @@ class CapacitiveDischargeExample(object):
 
     def __init__(self, verbose=False):
         '''Get input parameters for the specific case (n) desired.'''
+        # Control verbose (-v) flag output
         self.verbose = verbose
 
         # Case specific input parameters
         self.voltage = f'{self.voltage_rf}*sin(2*pi*{self.freq:.5e}*t)'
 
-        # Calculate timesteps
-        self.convergence_steps = int(self.convergence_time / self.dt)
-        self.evolve_steps = int(self.evolve_time / self.dt)
-        self.max_steps = int(self.total_time / self.dt)
-
         # Set MCC subcycling steps
         self.mcc_subcycling_steps = None
 
-        self._setup_diagnostic_steps()
+        # Get the starting step number
+        self.start_step = 0
+        if self.restart_checkpoint:
+            self.start_step += int(self.path_to_checkpoint.strip('/')[-8:])
+
+        # Get the (approximate) maximum step (will be updated later)
+        self.max_steps = int(self.total_time / self.dt) + self.start_step + self.bonus_steps
+
         self.setup_run()
 
     def _setup_diagnostic_steps(self):
@@ -164,11 +172,20 @@ class CapacitiveDischargeExample(object):
           output set (and the step info is saved)
         - self.diag_period_steps: number of steps between diagnostics
         '''
-        # Note: We calculate times in this function in seconds and then
-        #       convert to time steps to get the most accurate step numbers
+        # Setup local variables
         diag_start = self.convergence_time
         diag_n_evolve = self.diag_time + self.evolve_time
-        
+
+        # Account for the restart checkpoint
+        if self.restart_checkpoint:
+            diag_start += self.sim.extension.warpx.gett_new(lev=0)
+            self.total_time += self.sim.extension.warpx.gett_new(lev=0)
+            self.max_steps = int(self.total_time / self.dt) + self.bonus_steps
+
+        # Calculate timesteps
+        self.convergence_steps = int(diag_start / self.dt)
+        self.evolve_steps = int(self.evolve_time / self.dt)
+
         # Make a list of diagnostic start times
         diag_start_times = []
         for i in range(self.num_diag_steps):
@@ -184,6 +201,10 @@ class CapacitiveDischargeExample(object):
         for ii in range(1, len(self.diag_start)):
             if self.diag_start[ii] == self.diag_stop[ii - 1]:
                 self.diag_stop[ii - 1] -= 1
+
+        # If we are restarting and not doing any convergence, move the first diagnostic up one step
+        if self.restart_checkpoint and self.diag_start[0] < self.start_step:
+            self.diag_start[0] = self.start_step
 
     def setup_run(self):
         '''Setup simulation components.'''
@@ -316,24 +337,30 @@ class CapacitiveDischargeExample(object):
         # Initialize simulation                                               #
         #######################################################################
 
-        self.sim = picmi.Simulation(
-            solver=self.solver,
-            time_step_size=self.dt,
-            max_steps=self.max_steps,
-            warpx_collisions=[electron_colls, ion_colls],
-            verbose=self.verbose,
-            warpx_break_signals = 'USR1',
-            warpx_numprocs = [num_proc],
-            warpx_field_gathering_algo = 'energy-conserving'
-        )
+        if self.restart_checkpoint:
+            self.sim = picmi.Simulation(
+                solver=self.solver,
+                time_step_size=self.dt,
+                max_steps=self.max_steps,
+                warpx_collisions=[electron_colls, ion_colls],
+                verbose=self.verbose,
+                warpx_break_signals = 'USR1',
+                warpx_numprocs = [num_proc],
+                warpx_field_gathering_algo = 'energy-conserving',
+                warpx_amr_restart = self.path_to_checkpoint
+            )
+        else:
+            self.sim = picmi.Simulation(
+                solver=self.solver,
+                time_step_size=self.dt,
+                max_steps=self.max_steps,
+                warpx_collisions=[electron_colls, ion_colls],
+                verbose=self.verbose,
+                warpx_break_signals = 'USR1',
+                warpx_numprocs = [num_proc],
+                warpx_field_gathering_algo = 'energy-conserving'
+            )
         self.solver.sim = self.sim
-
-        # Initialize the ICP field, if necessary
-        if self.flag_ICP_heat:
-            self.applied_field = picmi.AnalyticAppliedField(Ex_expression=0,
-                                                            Ey_expression=0,
-                                                            Ez_expression=0)
-            self.sim.add_applied_field(self.applied_field)
 
         self.sim.add_species(
             self.electrons,
@@ -349,17 +376,13 @@ class CapacitiveDischargeExample(object):
         )
         self.solver.sim_ext = self.sim.extension
 
-        # Initialize the ICP heating source class, if necessary
-        if self.flag_ICP_heat:
-            self.ICP_heating_source = ICPHeatSource(self, self.sim.extension, ion_spec_names=['ar_ions'])
-
         #######################################################################
         # Add diagnostics                                                     #
         #######################################################################
         const_diag = picmi.FieldDiagnostic(
             name = 'periodic',
             grid = self.grid,
-            period = f'{self.max_steps // 40}',
+            period = f'{self.start_step}::{self.max_steps // 40}',
             data_list = ['phi','rho_ar_ions'],
             write_dir = './diags',
             warpx_format = 'openpmd',
@@ -369,15 +392,33 @@ class CapacitiveDischargeExample(object):
 
         checkpoint = picmi.Checkpoint(
             name = 'checkpt',
-            period = f'{self.convergence_steps}::{self.max_steps // 4}',
+            period = f'{self.start_step + int(self.convergence_time / self.dt)}::{self.max_steps // 4}',
             write_dir = './checkpoints',
             warpx_file_min_digits = 8,
             warpx_file_prefix = f'chkpt'
         )
         # self.sim.add_diagnostic(checkpoint)
 
+        # Initialize everything
+        self.sim.initialize_inputs()
+        self.sim.initialize_warpx()
+
+        # Add timings for custom diagnostics
+        self._setup_diagnostic_steps()
+
+        # Initialize the ICP heating source class, if necessary
+        if self.flag_ICP_heat:
+            self.ICP_heating_source = ICPHeatSource(self, self.sim.extension, ion_spec_names=['ar_ions'])
+
         # Add custom diagnostics
-        self.picmi_diagnostics = Diagnostics1D(self, self.sim.extension, switches=self.diag_switches, interval_times=self.interval_diag_times, ion_spec_names=['ar_ions'], restart_checkpoint=False)
+        self.picmi_diagnostics = Diagnostics1D(
+            self,
+            self.sim.extension,
+            switches=self.diag_switches,
+            interval_times=self.interval_diag_times,
+            ion_spec_names=['ar_ions'],
+            restart_checkpoint=self.restart_checkpoint
+        )
 
     #######################################################################
     # Run Simulation                                                      #
@@ -388,10 +429,14 @@ class CapacitiveDischargeExample(object):
         if self.flag_ICP_heat:
             callbacks.installafterEsolve(self.ICP_heating_source.calculate_E_ICP)
 
+        elapsed_steps = 0
+        if self.restart_checkpoint:
+            elapsed_steps = self.sim.extension.warpx.getistep(lev=0)
+
         ### Run until convergence ###
         #############################
-        self.sim.step(self.convergence_steps - self.evolve_steps)
-        elapsed_steps = self.convergence_steps - self.evolve_steps
+        self.sim.step(self.convergence_steps - self.evolve_steps - elapsed_steps)
+        elapsed_steps += self.convergence_steps - self.evolve_steps
 
         # Set up the particle buffer for diagnostic collection
         particle_buffer = particle_containers.ParticleBoundaryBufferWrapper()
@@ -400,7 +445,7 @@ class CapacitiveDischargeExample(object):
         callbacks.installbeforestep(self.picmi_diagnostics.do_diagnostics)
 
         # Run the simulation until the end
-        self.sim.step(self.max_steps - elapsed_steps + 8)
+        self.sim.step(self.max_steps - elapsed_steps + self.bonus_steps)
         
         callbacks.uninstallcallback('beforestep', self.picmi_diagnostics.do_diagnostics)
         if self.flag_ICP_heat:
