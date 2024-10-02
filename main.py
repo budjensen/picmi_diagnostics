@@ -177,6 +177,9 @@ class ICPHeatSource:
         '''
         Function which heats particles in the plasma using an ICP field.
         '''
+        # Synchronize positions and velocities
+        self.sim_ext.warpx.synchronize()
+
         # Calculate perpendicular conduction current density
         J_conduction = self.calculate_J_perp()
 
@@ -1868,6 +1871,10 @@ class Diagnostics1D:
                     temp_dict = {key: bool for key, bool in zip(self.master_diagnostic_dict['interval'].keys(), self.original_interval_dict_array)}
                     self.master_diagnostic_dict['interval'] = temp_dict
             self.num_in_collections_this_output = [0 for _ in range(len(self.in_slices))]
+
+        # Synchronize, if necessary, to catch velocities up to positions
+        if any(self.master_diagnostic_dict[key].get(metric) for key in self.master_diagnostic_dict for metric in ['Jze', 'Jzi', 'CPe', 'CPi', 'IPe', 'IPi', 'W_e', 'W_i']):
+            self.sim_ext.warpx.synchronize()
 
         # Check if we need to save the electric field for the displacement current
         save_E_last_step = False
