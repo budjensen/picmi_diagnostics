@@ -103,7 +103,7 @@ class ICPHeatSource:
         self.ICP_window_size = self.zmax_idx - self.zmin_idx
 
         # Initialize the ICP field
-        self.E_ICP = np.zeros(self.ICP_window_size)
+        self.E_ICP = np.zeros(self.ICP_window_size + 1)
 
         # Save pertinant information to file './diags/ICP_info.dat'
         if comm.rank != 0:
@@ -148,7 +148,7 @@ class ICPHeatSource:
             return
 
         # Initialize the ICP recording arrays
-        self.Jperp_diag = np.zeros((self.diag_step_count + 1, self.ICP_window_size))
+        self.Jperp_diag = np.zeros((self.diag_step_count + 1, self.ICP_window_size + 1))
         self.field_diag = np.zeros((self.diag_step_count + 1, self.ICP_window_size + 1))
 
     def _import_general_timing_info(self, simulation_obj: CapacitiveDischargeExample):
@@ -192,15 +192,8 @@ class ICPHeatSource:
         # Make an array of length nz + 1 and fill it with the ICP field
         E_ICP_full = np.zeros(self.nz + 1)
 
-        # For the first (last) node, we use the first (last) cell value. 
-        # For the rest, we use the average of the neighboring cells.
-        # (This approach is much more stable than the below.)
-        E_ICP_full[self.zmin_idx] = self.E_ICP[0]
-        E_ICP_full[self.zmax_idx] = self.E_ICP[-1]
-        E_ICP_full[self.zmin_idx+1:self.zmax_idx] = (self.E_ICP[:-1] + self.E_ICP[1:]) / 2
-
-        # Alternatively, just fill (this is very unstable)
-        # E_ICP_full[self.zmin_idx:self.zmax_idx] = self.E_ICP
+        # Collected on the nodes, so put on the nodes directly
+        E_ICP_full[self.zmin_idx:self.zmax_idx+1] = self.E_ICP
 
         # Get the Ex field wrapper
         Ex = fields.ExFPWrapper()
@@ -228,7 +221,7 @@ class ICPHeatSource:
 
             if self.curr_diag_output != self.num_outputs:
                 self.diag_step_count = self.diag_stop[self.curr_diag_output] - self.diag_start[self.curr_diag_output]
-                self.Jperp_diag = np.zeros((self.diag_step_count + 1, self.ICP_window_size))
+                self.Jperp_diag = np.zeros((self.diag_step_count + 1, self.ICP_window_size + 1))
                 self.field_diag = np.zeros((self.diag_step_count + 1, self.ICP_window_size + 1))
 
     def calculate_J_perp(self):
@@ -236,13 +229,83 @@ class ICPHeatSource:
         Calculate the perpendicular conduction current density.
         '''
         # Get the current density of all species
-        J_perp = np.zeros(self.ICP_window_size)
+        J_perp = np.zeros(self.ICP_window_size + 1)
         for species in self.species_names:
             J_perp += self.charge_by_name[species] * self.calculate_Flux_perp(species)
 
         return J_perp
     
     def calculate_Flux_perp(self, species) -> np.ndarray[float]:
+        '''
+        Calculate the perpendicular flux density for a species.
+
+        Parameters
+        ----------
+        species: str
+            Name of species
+        '''
+        # Get wrappers for species
+        species_wrapper = particle_containers.ParticleContainerWrapper(species)
+
+        # Get particle data
+        try:
+            ux = np.concatenate(species_wrapper.get_particle_ux())
+            z = np.concatenate(species_wrapper.get_particle_z())
+            w = np.concatenate(species_wrapper.get_particle_weight())
+        except ValueError:
+            ux = np.array([])
+            z = np.array([])
+            w = np.array([])
+
+        Flux_perp_temp = np.zeros(self.ICP_window_size + 1)
+
+        # Calculate cell indices and fractional positions
+        cell_idx = np.floor_divide(z, self.dz).astype(int) - self.zmin_idx
+        frac_pos = (z / self.dz) - (cell_idx + self.zmin_idx)
+
+        # Create masks for boundary conditions
+        mask_first = (cell_idx == 0)
+        mask_last = (cell_idx == self.ICP_window_size - 1)
+        mask_middle = (cell_idx > 0) & (cell_idx < self.ICP_window_size - 1)
+
+        # First boundary (cell_idx == 0)
+        if np.any(mask_first):  # Check if there are any True values in mask_first
+            np.add.at(Flux_perp_temp, 0, np.sum(ux[mask_first] * w[mask_first] * (1 - frac_pos[mask_first]) * 2))
+            np.add.at(Flux_perp_temp, 1, np.sum(ux[mask_first] * w[mask_first] * frac_pos[mask_first]))
+
+        # Last boundary (cell_idx == self.ICP_window_size - 1)
+        if np.any(mask_last):  # Check if there are any True values in mask_last
+            np.add.at(Flux_perp_temp, self.ICP_window_size - 1, np.sum(ux[mask_last] * w[mask_last] * (1 - frac_pos[mask_last])))
+            np.add.at(Flux_perp_temp, self.ICP_window_size, np.sum(ux[mask_last] * w[mask_last] * frac_pos[mask_last] * 2))
+
+        # Middle cells (0 < cell_idx < self.ICP_window_size - 1)
+        np.add.at(Flux_perp_temp, cell_idx[mask_middle], ux[mask_middle] * w[mask_middle] * (1 - frac_pos[mask_middle]))
+        np.add.at(Flux_perp_temp, cell_idx[mask_middle] + 1, ux[mask_middle] * w[mask_middle] * frac_pos[mask_middle])
+
+        # Send the flux to all processes
+        Flux_perp = np.zeros_like(Flux_perp_temp)
+        comm.Allreduce(Flux_perp_temp, Flux_perp, op=mpi.SUM)
+
+        # Scale the flux to [1/(s*m^2)]
+        Flux_perp /= self.dz
+
+        return Flux_perp
+
+    ###########################################################################
+    # The next two functions have been deprecated and are not used in use     #
+    ###########################################################################
+    def calculate_J_perp_cells(self):
+        '''
+        Calculate the perpendicular conduction current density.
+        '''
+        # Get the current density of all species
+        J_perp = np.zeros(self.ICP_window_size)
+        for species in self.species_names:
+            J_perp += self.charge_by_name[species] * self.calculate_Flux_perp_cells(species)
+
+        return J_perp
+    
+    def calculate_Flux_perp_cells(self, species) -> np.ndarray[float]:
         '''
         Calculate the perpendicular flux density for a species.
 
@@ -282,6 +345,9 @@ class ICPHeatSource:
 
         return Flux_perp
 
+    ###########################################################################
+    # Support Functions                                                       #
+    ###########################################################################
     def _save_data(self):
         '''
         Save the ICP diagnostic data to file.
