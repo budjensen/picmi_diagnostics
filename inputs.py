@@ -20,7 +20,7 @@ nano = 1e-9
 pico = 1e-12
 
 eV_in_K = 11605.41586
-ng_1Torr = 322.3e20                     # 1 Torr in m^-3
+ng_1Torr = 322.3e20                                     # 1 Torr in m^-3
 
 class CapacitiveDischargeExample(object):
 
@@ -62,6 +62,7 @@ class CapacitiveDischargeExample(object):
     num_diag_steps = 2                                  # Number of diagnostic evaluations
     collections_per_diag_step = 400                     # Number of collections per diagnostic evaluation for time resolved diagnostics
     interval_diag_times = [0, 0.25, 0.5, 0.75]          # Times to evaluate interval diagnostics (as a fraction of the RF period), if turned on
+    interval_time = 1 / freq                            # Time to run interval diagnostics
     Riz_collection_time = diag_time                     # Time to run ionization rate diagnostics
 
     restart_checkpoint = False                          # Restart from checkpoint
@@ -436,7 +437,7 @@ class CapacitiveDischargeExample(object):
         ### Run until convergence ###
         #############################
         self.sim.step(self.convergence_steps - self.evolve_steps - elapsed_steps)
-        elapsed_steps += self.convergence_steps - self.evolve_steps
+        elapsed_steps = self.convergence_steps - self.evolve_steps
 
         # Set up the particle buffer for diagnostic collection
         particle_buffer = particle_containers.ParticleBoundaryBufferWrapper()

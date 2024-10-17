@@ -237,7 +237,7 @@ class ICPHeatSource:
             J_perp += self.charge_by_name[species] * self.calculate_Flux_perp(species)
 
         return J_perp
-    
+
     def calculate_Flux_perp(self, species) -> np.ndarray[float]:
         '''
         Calculate the perpendicular flux density for a species.
@@ -531,6 +531,7 @@ class Diagnostics1D:
         # Import simulation parameters
         self.m_ion = simulation_obj.m_ion
         self.rf_period = 1 / simulation_obj.freq
+        self.in_period = simulation_obj.interval_time
         self.dt = simulation_obj.dt
         self.nz = simulation_obj.nz
         self.dz = simulation_obj.dz
@@ -550,7 +551,6 @@ class Diagnostics1D:
 
         self.restart_checkpoint = restart_checkpoint
 
-        self.in_period = self.rf_period
         if interval_times is None:
             self.in_slices = np.array([0, 0.125, 0.25, 0.375 , 0.5]) # Range [0, 1), fractions of interval_period
         else:
@@ -710,6 +710,7 @@ class Diagnostics1D:
         self.in_CPi = [None for _ in range(len(self.in_slices))]
         self.in_IPe = [None for _ in range(len(self.in_slices))]
         self.in_IPi = [None for _ in range(len(self.in_slices))]
+        self.num_in_collections_this_output = [0 for _ in range(len(self.in_slices))]
 
         # Single diagnostic output arrays
         # Array of diagnostic species indices
@@ -2139,6 +2140,7 @@ class Diagnostics1D:
         self.in_CPi = [None for _ in range(len(self.in_slices))]
         self.in_IPe = [None for _ in range(len(self.in_slices))]
         self.in_IPi = [None for _ in range(len(self.in_slices))]
+        self.num_in_collections_this_output = [0 for _ in range(len(self.in_slices))]
 
     ###########################################################################
     # Saving Functions                                                        #
