@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import os
 
 class Analysis:
-    def __init__(self, directory: str = './diags'):
+    def __init__(self, directory: str = './diags', quiet_startup: bool = False):
         '''
         Initialize the Analysis object with the directory of the diagnostics data
         
@@ -12,6 +12,8 @@ class Analysis:
         ----------
         directory : str
             The directory of the diagnostics data
+        quiet_startup : bool, default=False
+            Display the startup information
         '''
         # Set the list of diagnostics that plot on the cells
         self.cell_diags = ['E_z', 'J_d', 'CPe', 'CPi', 'IPe', 'IPi']
@@ -41,7 +43,8 @@ class Analysis:
 
         # Check if any of the elements in self.dir start with ieadf
         if any(dir.startswith('ieadf') for dir in self.dir):
-            print('IEADF data found')
+            if not quiet_startup: 
+                print('IEADF data found')
             self.ieadf_bool = True
 
             # Save the ieadf directories (there will be one for each ion species)
@@ -51,10 +54,11 @@ class Analysis:
             for species_dir in temp:
                 # Save the species name as the dictionary key and the directory as the value
                 self.ieadf_dir[species_dir.split('ieadf_')[-1]] = species_dir
-            if len(self.ieadf_dir) > 1:
-                print(f' - {len(self.ieadf_dir)} IEADF directories found for species: {", ".join(self.ieadf_dir.keys())}')
-            else:
-                print(f' - {len(self.ieadf_dir)} IEADF directory found for species: {", ".join(self.ieadf_dir.keys())}')
+            if not quiet_startup:
+                if len(self.ieadf_dir) > 1:
+                    print(f' - {len(self.ieadf_dir)} IEADF directories found for species: {", ".join(self.ieadf_dir.keys())}')
+                else:
+                    print(f' - {len(self.ieadf_dir)} IEADF directory found for species: {", ".join(self.ieadf_dir.keys())}')
 
             # Initialize the energy and degree bin dictionaries
             self.energy = {}
@@ -71,7 +75,8 @@ class Analysis:
 
             # Check if the ieadf directory has bins_eV.npy and bins_deg.npy
             for key, directory in self.ieadf_dir.items():
-                print(f' - Looking into directory for species: {key}')
+                if not quiet_startup: 
+                    print(f' - Looking into directory for species: {key}')
                 ieadf_dir = os.listdir(directory)
                 ieadf_dir.sort()
                 if 'bins_eV.npy' in ieadf_dir:
@@ -81,7 +86,7 @@ class Analysis:
                     self.energy_edges[key][0] = self.energy[key][0] - (self.energy[key][1] - self.energy[key][0])/2
                     self.energy_edges[key][1:-1] = (self.energy[key][1:] + self.energy[key][:-1])/2
                     self.energy_edges[key][-1] = self.energy[key][-1] + (self.energy[key][-1] - self.energy[key][-2])/2
-                else:
+                elif not quiet_startup: 
                     print(f'   > Energy bins not found')
                 if 'bins_deg.npy' in ieadf_dir:
                     self.deg[key] = np.load(directory + '/bins_deg.npy')
@@ -90,7 +95,7 @@ class Analysis:
                     self.deg_edges[key][0] = self.deg[key][0] - (self.deg[key][1] - self.deg[key][0])/2
                     self.deg_edges[key][1:-1] = (self.deg[key][1:] + self.deg[key][:-1])/2
                     self.deg_edges[key][-1] = self.deg[key][-1] + (self.deg[key][-1] - self.deg[key][-2])/2
-                else:
+                elif not quiet_startup: 
                     print(f'   > Degree bins not found')
 
                 self.ieadf_data_lists[key] = {}
@@ -98,20 +103,23 @@ class Analysis:
                 if any(file.startswith('lw') for file in ieadf_dir):
                     self.lw_ieadf_colls[key] = [f'{directory}/{file}' for file in ieadf_dir if file.startswith('lw')]
                     self.lw_ieadf_colls[key].sort()
-                    print(f'   > {len(self.lw_ieadf_colls[key])} left wall collections')
+                    if not quiet_startup: 
+                        print(f'   > {len(self.lw_ieadf_colls[key])} left wall collections')
                     # Initialize the left wall ieadf data dictionary
                     self.ieadf_data_lists[key]['lw'] = []
 
                 if any(file.startswith('rw') for file in ieadf_dir):
                     self.rw_ieadf_colls[key] = [f'{directory}/{file}' for file in ieadf_dir if file.startswith('rw')]
                     self.rw_ieadf_colls[key].sort()
-                    print(f'   > {len(self.rw_ieadf_colls[key])} right wall collections')
+                    if not quiet_startup: 
+                        print(f'   > {len(self.rw_ieadf_colls[key])} right wall collections')
                     # Initialize the right wall ieadf data dictionary
                     self.ieadf_data_lists[key]['rw'] = []
 
         # Check if any of the elements in self.dir start with r_ioniz
         if any(dir.startswith('r_ioniz') for dir in self.dir):
-            print('Ionization rate data found')
+            if not quiet_startup: 
+                print('Ionization rate data found')
             self.Riz_bool = True
 
             # Save the r_ioniz directories (there will be one for each ion species)
@@ -121,10 +129,11 @@ class Analysis:
             for species_dir in temp:
                 # Save the species name as the dictionary key and the directory as the value
                 self.Riz_dir[species_dir.split('r_ioniz_')[-1]] = species_dir
-            if len(self.Riz_dir) > 1:
-                print(f' - {len(self.Riz_dir)} Ionization rate directories found for species: {", ".join(self.Riz_dir.keys())}')
-            else:
-                print(f' - {len(self.Riz_dir)} Ionization rate directory found for species: {", ".join(self.Riz_dir.keys())}')
+            if not quiet_startup: 
+                if len(self.Riz_dir) > 1:
+                    print(f' - {len(self.Riz_dir)} Ionization rate directories found for species: {", ".join(self.Riz_dir.keys())}')
+                else:
+                    print(f' - {len(self.Riz_dir)} Ionization rate directory found for species: {", ".join(self.Riz_dir.keys())}')
 
             # Initialize the z and time bin dictionaries
             self.Riz_z = {}
@@ -140,7 +149,8 @@ class Analysis:
 
             # Check if the ieadf directory has bins_z.npy and bins_t.npy
             for key, directory in self.Riz_dir.items():
-                print(f' - Looking into directory for species: {key}')
+                if not quiet_startup: 
+                    print(f' - Looking into directory for species: {key}')
                 Riz_dir = os.listdir(directory)
                 Riz_dir.sort()
                 if 'bins_z.npy' in Riz_dir:
@@ -150,7 +160,7 @@ class Analysis:
                     self.Riz_z_edges[key][0]    = self.Riz_z[key][0] - (self.Riz_z[key][1] - self.Riz_z[key][0])/2
                     self.Riz_z_edges[key][1:-1] = (self.Riz_z[key][1:] + self.Riz_z[key][:-1])/2
                     self.Riz_z_edges[key][-1]   = self.Riz_z[key][-1] + (self.Riz_z[key][-1] - self.Riz_z[key][-2])/2
-                else:
+                elif not quiet_startup: 
                     print(f'   > Position bins not found')
                 if 'bins_t.npy' in Riz_dir:
                     self.Riz_t[key] = np.load(directory + '/bins_t.npy')
@@ -159,7 +169,7 @@ class Analysis:
                     self.Riz_t_edges[key][0]    = self.Riz_t[key][0] - (self.Riz_t[key][1] - self.Riz_t[key][0])/2
                     self.Riz_t_edges[key][1:-1] = (self.Riz_t[key][1:] + self.Riz_t[key][:-1])/2
                     self.Riz_t_edges[key][-1]   = self.Riz_t[key][-1] + (self.Riz_t[key][-1] - self.Riz_t[key][-2])/2
-                else:
+                elif not quiet_startup: 
                     print(f'   > Time bins not found')
 
                 self.Riz_data_lists[key] = {}
@@ -167,12 +177,14 @@ class Analysis:
                 if any(file.startswith('Riz') for file in Riz_dir):
                     self.Riz_colls[key] = [f'{directory}/{file}' for file in Riz_dir if file.startswith('Riz')]
                     self.Riz_colls[key].sort()
-                    print(f'   > {len(self.Riz_colls[key])} data collections')
+                    if not quiet_startup: 
+                        print(f'   > {len(self.Riz_colls[key])} data collections')
                     # Initialize the data dictionary
                     self.Riz_data_lists[key] = []
 
         if any(dir.startswith('interval') for dir in self.dir):
-            print('Interval data found')
+            if not quiet_startup: 
+                print('Interval data found')
             self.in_bool = True
             temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('interval')]
             temp.sort()
@@ -180,7 +192,7 @@ class Analysis:
             for coll in temp:
                 self.in_colls[int(coll.split('/')[-1].split('_')[-1])] = coll
             num_colls = len(self.in_colls)
-            if num_colls == 0:
+            if num_colls == 0 and not quiet_startup:
                 print(f' - {num_colls} interval collections found')
             else:
                 # Open file f'{self.directory}/diagnostic_times.dat' to get the time intervals
@@ -189,12 +201,14 @@ class Analysis:
                         if line.startswith('Times in interval='):
                             self.in_times = np.array([float(time) for time in line.split('=')[1].split(', ')])
                             break
-                print(f' - {num_colls} interval collections at {len(self.in_times)} time intervals: {", ".join([str(time) for time in self.in_times])}')
+                if not quiet_startup:
+                    print(f' - {num_colls} interval collections at {len(self.in_times)} time intervals: {", ".join([str(time) for time in self.in_times])}')
 
                 # Print collected fields
                 self.in_fields = [file.split('.')[0] for file in os.listdir(self.in_colls[1]) if file.endswith('.npz')]
                 self.in_fields.sort()
-                print(f' - {len(self.in_fields)} fields: {", ".join(self.in_fields)}')
+                if not quiet_startup: 
+                    print(f' - {len(self.in_fields)} fields: {", ".join(self.in_fields)}')
 
                 # Set up dictionary to store interval data
                 self.in_data = {}
@@ -204,7 +218,8 @@ class Analysis:
                         self.in_data[field][collection] = [0]*len(self.in_times)
 
         if any(dir.startswith('time_resolved') for dir in self.dir):
-            print('Time resolved data found')
+            if not quiet_startup: 
+                print('Time resolved data found')
             self.tr_bool = True
             temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('time_resolved')]
             temp.sort()
@@ -212,13 +227,15 @@ class Analysis:
             for coll in temp:
                 self.tr_colls[int(coll.split('/')[-1].split('_')[-1])] = coll
             num_colls = len(self.tr_colls)
-            print(f' - {num_colls} time resolved collections')
+            if not quiet_startup: 
+                print(f' - {num_colls} time resolved collections')
 
             if num_colls > 0:
                 # Print collected fields
                 self.tr_fields = [file.split('.')[0] for file in os.listdir(self.tr_colls[1]) if file.endswith('.npy') and file != 'times.npy']
                 self.tr_fields.sort()
-                print(f' - {len(self.tr_fields)} fields: {", ".join(self.tr_fields)}')
+                if not quiet_startup: 
+                    print(f' - {len(self.tr_fields)} fields: {", ".join(self.tr_fields)}')
 
                 # Set up dictionary to store time resolved data
                 self.tr_data = {}
@@ -232,16 +249,19 @@ class Analysis:
                     self.tr_times[collection] = np.load(f'{self.tr_colls[collection]}/times.npy')
 
         if any(dir.startswith('time_averaged') for dir in self.dir):
-            print('Time averaged data found')
+            if not quiet_startup: 
+                print('Time averaged data found')
             self.time_averaged_bool = True
             self.time_averaged_colls = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('time_averaged')]
             self.time_averaged_colls.sort()
-            print(f' - {len(self.time_averaged_colls)} time averaged collections')
+            if not quiet_startup: 
+                print(f' - {len(self.time_averaged_colls)} time averaged collections')
 
             # Print collected fields
             self.time_averaged_fields = [file.split('.')[0] for file in os.listdir(self.time_averaged_colls[0]) if file.endswith('.npy')]
             self.time_averaged_fields.sort()
-            print(f' - {len(self.time_averaged_fields)} fields: {", ".join(self.time_averaged_fields)}')
+            if not quiet_startup: 
+                print(f' - {len(self.time_averaged_fields)} fields: {", ".join(self.time_averaged_fields)}')
 
             # Set up dictionary to store time averaged data
             self.time_averaged_data = {}
@@ -602,6 +622,7 @@ class Analysis:
     
     def plot_avg_iedf(self,
                       species: str = None,
+                      separate_rl: bool = False,
                       normalize: bool = True,
                       dpi=150):
         '''
@@ -611,6 +632,8 @@ class Analysis:
         ----------
         species : str, default=None
             The species to plot. If None, plots all species on a single axis
+        separate_rl : bool, default=False
+            Average the left and right wall IEDF data separately if True
         normalize : bool
             Normalize the IEDF data
         dpi : int
@@ -626,7 +649,7 @@ class Analysis:
         if not self.ieadf_bool:
             raise ValueError('IEADF data not found')
         if not hasattr(self, 'avg_iedf_data'):
-            self.get_avg_iedf_data()
+            self.get_avg_iedf_data(separate_rl=separate_rl)
         if species is not None and species not in self.iedf_data_lists:
             raise ValueError(f'Species must be one of: {", ".join(self.iedf_data_lists.keys())}')
         if normalize:
@@ -1260,7 +1283,13 @@ class Analysis:
 
         return fig, ax
 
-    def animate_time_resolved(self, field: str, collection: int, dpi=150, interval=100, repeat_delay=500):
+    def animate_time_resolved(self,
+                              field: str,
+                              collection: int,
+                              dpi=150,
+                              interval=100, 
+                              repeat_delay=500
+                              ):
         '''
         Animate the time resolved data
         
@@ -1286,7 +1315,7 @@ class Analysis:
             raise ValueError('Time resolved data not found')
         if field not in self.tr_fields:
             raise ValueError(f'Field must be one of: {", ".join(self.tr_fields)}')
-        # Check if the field has been loaded into self.tr_data. If it unloaded, the list will be empty
+        # Check if the field has been loaded. If unloaded, the list will be empty
         if any([len(self.tr_data[field][key]) == 0 for key in self.tr_data[field]]):
             self.load_time_resolved(field)
 
@@ -1313,9 +1342,139 @@ class Analysis:
                 ax.set_ylim(min, max)
             return line,
 
-        anim = FuncAnimation(fig, update, frames=len(self.tr_data[field][collection]), interval=interval, repeat_delay=repeat_delay)
+        anim = FuncAnimation(
+            fig,
+            update,
+            frames = len(self.tr_data[field][collection]),
+            interval=interval,
+            repeat_delay=repeat_delay
+            )
         return anim
-    
+
+    def integrate_tr_power(self,
+                           field: str,
+                           collections: bool = False
+                           ):
+        '''
+        Calculate the power from the time resolved data and saves it into
+        self.integrated_tr_power[field][coll] with a key coll = 'avg'
+
+        Parameters
+        ----------
+        field : str
+            The field to calculate power for
+        collections : int, default=False
+            Whether to report power for each collection or as an average
+            of all collections
+
+        Returns
+        -------
+        avg_integrated_tr_power : dict[dict[float]]
+            The integrated power for each collection and the average
+        '''
+        if not self.tr_bool:
+            raise ValueError('Time resolved data not found')
+        if field not in ['IPe', 'IPi', 'CPe', 'CPi']:
+            raise ValueError('Field must be one of: IPe, IPi, CPe, CPi')
+
+        # Get a profile for each time resolved collection
+        if collections:
+            if not hasattr(self, 'avg_tr_collection_data'):
+                self.avg_time_resolved_collections(field)
+            if field not in self.avg_tr_collection_data:
+                self.avg_time_resolved_collections(field)
+
+        # Get a profile for the average of all time resolved collections
+        if not hasattr(self, 'avg_tr_data'):
+            self.avg_time_resolved(field)
+        if field not in self.avg_tr_data:
+            self.avg_time_resolved(field)
+
+        # Check if the field has been loaded. If unloaded, the list will be empty
+        if any([len(self.tr_data[field][key]) == 0 for key in self.tr_data[field]]):
+            self.load_time_resolved(field)
+        if not hasattr(self, 'avg_integrated_tr_power'):
+            self.avg_integrated_tr_power = {}
+
+        self.avg_integrated_tr_power[field] = {}
+
+        # Calculate the power for each collection
+        if collections:
+            for coll in self.tr_data[field]:
+                self.avg_integrated_tr_power[field][coll] = np.sum(self.avg_tr_collection_data[field][coll] * self.dz)
+
+        # Calculate the power for the average of all collections
+        self.avg_integrated_tr_power[field]['avg'] = np.sum(self.avg_tr_data[field] * self.dz)
+
+        return self.avg_integrated_tr_power
+
+    def get_integrated_tr_power(self,
+                                field: str,
+                                collections: bool = False,
+                                ):
+        '''
+        Wrapper function to calculate and display the integrated power
+        
+        Parameters
+        ----------
+        field : str
+            The field to calculate power for
+        collections : bool, default=False
+            Whether to report power for each collection or as an average
+            of all collections
+        '''
+        if not self.tr_bool:
+            raise ValueError('Time resolved data not found')
+        if field not in ['IPe', 'IPi', 'CPe', 'CPi']:
+            raise ValueError('Field must be one of: IPe, IPi, CPe, CPi')
+
+        # Get the power
+        if not hasattr(self, 'integrated_tr_power'):
+            self.integrate_tr_power(field, collections=True)
+        else:
+            if field not in self.avg_integrated_tr_power:
+                self.integrate_tr_power(field, collections=True)
+
+        # Display the power
+        print(f'Power input from {field}\n--------------------')
+        print(f'AVG: {self.avg_integrated_tr_power[field]["avg"]:.3e} W')
+
+        if collections:
+            # print a blank line
+            print()
+            for coll in self.tr_data[field]:
+                print(f'{coll:03d}: {self.avg_integrated_tr_power[field][coll]:.3e} W')
+
+    def get_total_tr_power(self):
+        '''
+        Get the total power into the system from the time resolved data
+        '''
+        if not self.tr_bool:
+            raise ValueError('Time resolved data not found')
+
+        # Look at the list of tr_fields and get power fields
+        gather_fields = []
+        for fld in self.tr_fields:
+            # If anything starts with 'IP' or 'CP', it is a power field
+            if fld.startswith('IP'):
+                gather_fields.append(fld)
+            elif fld.startswith('CP'):
+                gather_fields.append(fld)
+
+        # Get the power
+        total_power = 0.
+        for field in gather_fields:
+            self.integrate_tr_power(field)
+            total_power += self.avg_integrated_tr_power[field]['avg']
+
+        # Prepare output string
+        temp_str = [f'P_{fld[0]},{fld[2]} ({self.avg_integrated_tr_power[fld]["avg"]:.2e})' for fld in gather_fields]
+        sum_string = ' + '.join(temp_str)
+
+        # Display the power
+        print(f'Total power input\n--------------------')
+        print(f' {sum_string} = {total_power:.3e} W')
+
     def _color_chooser(self, idx, num_colors, cmap='GnBu'):
         '''
         Choose a color from a list of colors
