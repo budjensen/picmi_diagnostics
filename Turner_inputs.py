@@ -54,6 +54,7 @@ class CapacitiveDischargeExample(object):
     num_diag_steps = 1                                  # Number of diagnostic evaluations
     collections_per_diag_step = 3200                    # Number of collections per diagnostic evaluation for time resolved diagnostics
     interval_diag_times = [0, 0.25, 0.5, 0.75]          # Times to evaluate interval diagnostics (as a fraction of the RF period), if turned on
+    interval_time = 1 / freq                            # Time to run interval diagnostics
     Riz_collection_time = diag_time                     # Time to run ionization rate diagnostics
 
     restart_checkpoint = False                          # Restart from checkpoint
@@ -156,6 +157,10 @@ class CapacitiveDischargeExample(object):
           output set (and the step info is saved)
         - self.diag_period_steps: number of steps between diagnostics
         '''
+        # Make sure we run at least one convergence step
+        if int(self.convergence_time/self.dt) == 0:
+            self.convergence_time = self.dt
+
         # Setup local variables
         diag_start = self.convergence_time
         diag_n_evolve = self.diag_time + self.evolve_time
@@ -383,8 +388,8 @@ class CapacitiveDischargeExample(object):
 
         ### Run until convergence ###
         #############################
-        self.sim.step(self.convergence_steps - self.evolve_steps - elapsed_steps)
-        elapsed_steps += self.convergence_steps - self.evolve_steps
+        self.sim.step(self.convergence_steps - elapsed_steps - 1)
+        elapsed_steps += self.convergence_steps - 1
 
         # Set up the particle buffer for diagnostic collection
         particle_buffer = particle_containers.ParticleBoundaryBufferWrapper()

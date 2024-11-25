@@ -173,6 +173,10 @@ class CapacitiveDischargeExample(object):
           output set (and the step info is saved)
         - self.diag_period_steps: number of steps between diagnostics
         '''
+        # Make sure we run at least one convergence step
+        if int(self.convergence_time/self.dt) == 0:
+            self.convergence_time = self.dt
+
         # Setup local variables
         diag_start = self.convergence_time
         diag_n_evolve = self.diag_time + self.evolve_time
@@ -436,8 +440,8 @@ class CapacitiveDischargeExample(object):
 
         ### Run until convergence ###
         #############################
-        self.sim.step(self.convergence_steps - self.evolve_steps - elapsed_steps)
-        elapsed_steps = self.convergence_steps - self.evolve_steps
+        self.sim.step(self.convergence_steps - elapsed_steps - 1)
+        elapsed_steps = self.convergence_steps - 1
 
         # Set up the particle buffer for diagnostic collection
         particle_buffer = particle_containers.ParticleBoundaryBufferWrapper()
