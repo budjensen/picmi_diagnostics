@@ -1184,7 +1184,12 @@ class Analysis:
                 self.avg_tr_data[fld] = np.mean(np.concatenate([self.tr_data[fld][coll] for coll in self.tr_data[fld]], axis = 0), axis=0)
         return self.avg_tr_data
 
-    def plot_avg_time_resolved_collection(self, field: str, collection: int = None, dpi = 150, cmap : str = 'GnBu'):
+    def plot_avg_time_resolved_collection(self,
+                                          field: str,
+                                          collection: int = None,
+                                          ax = None,
+                                          dpi = 150,
+                                          cmap : str = 'GnBu'):
         '''
         Plot the average time resolved data
         
@@ -1195,6 +1200,8 @@ class Analysis:
         collection : int, default=None
             The index of the collection to plot. If None, plots all collections
             on a single axis
+        ax : matplotlib.axes.Axes, default=None
+            The axes object to plot on. If None, creates a new figure and axes
         dpi : int
             The DPI of the plot
         cmap : str, default='GnBu'
@@ -1213,7 +1220,12 @@ class Analysis:
             self.avg_time_resolved_collections(field)
         if field not in self.avg_tr_collection_data:
             self.avg_time_resolved_collections(field)
-        fig, ax = plt.subplots(1,1, dpi=dpi)
+
+        return_fig = False
+        if ax is None:
+            fig, ax = plt.subplots(1,1, dpi=dpi)
+            return_fig = True
+
         if field in self.cell_diags:
             x = self.cells
         else:
@@ -1244,9 +1256,12 @@ class Analysis:
         ax.margins(x=0)
         ax.legend(loc = [1.01,0], fontsize = 'small')
 
-        return fig, ax
+        if return_fig:
+            return fig, ax
+        else:
+            return ax
     
-    def plot_avg_time_resolved(self, field: str, dpi=150):
+    def plot_avg_time_resolved(self, field: str, ax = None, dpi=150):
         '''
         Plot the average time resolved data
         
@@ -1254,6 +1269,8 @@ class Analysis:
         ----------
         field : str
             The field to plot
+        ax : matplotlib.axes.Axes, default=None
+            The axes object to plot on. If None, creates a new figure and axes
         dpi : int
             The DPI of the plot
         
@@ -1270,7 +1287,12 @@ class Analysis:
             self.avg_time_resolved(field)
         if field not in self.avg_tr_data:
             self.avg_time_resolved(field)
-        fig, ax = plt.subplots(1,1, dpi=dpi)
+
+        return_fig = False
+        if ax is None:
+            fig, ax = plt.subplots(1,1, dpi=dpi)
+            return_fig = True
+
         if field in self.cell_diags:
             x = self.cells
         else:
@@ -1281,7 +1303,10 @@ class Analysis:
         ax.set_title(f'Time averaged {field}')
         ax.margins(x=0)
 
-        return fig, ax
+        if return_fig:
+            return fig, ax
+        else:
+            return ax
 
     def animate_time_resolved(self,
                               field: str,
