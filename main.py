@@ -590,7 +590,6 @@ class Diagnostics1D:
             'time_resolved': time_resolved_dict,
             'interval': interval_dict
         }
-        self.original_interval_dict_array = [el for el in interval_dict.values()]
 
         # Set dictionaries of charge and mass for particles
         self.mass_by_name = {
@@ -609,10 +608,9 @@ class Diagnostics1D:
         self._get_time_resolved_steps(simulation_obj)
         if any(interval_dict.values()):
             self._get_interval_collection_steps()
-        else:
-            self.output_next_in_coll = -1
         if self.Riz_switch:
             self._setup_Riz_diag(simulation_obj)
+        self._calculate_N_collections()
         self._setup_diagnostic_arrays(simulation_obj)
 
         # Save settings to file
@@ -621,8 +619,12 @@ class Diagnostics1D:
             self._save_edf_settings()
         self._save_cells_and_nodes(simulation_obj)
 
-        # Set diagnostic output index
+        # Set diagnostic output indices
         self.curr_diag_output = 0
+        self.curr_tr = 0
+        self.curr_ta = 0
+        self.curr_interval = 0
+        self.curr_slice = 0
 
     ###########################################################################
     # Initialization Functions                                                #
@@ -658,20 +660,20 @@ class Diagnostics1D:
                 self.Riz_by_species[species] = np.zeros((self.Riz_nt, self.nz))
 
         # Time resolved arrays
-        self.tr_N_e = None
-        self.tr_N_i = None
-        self.tr_W_e = None
-        self.tr_W_i = None
-        self.tr_E_z = None
-        self.tr_phi = None
-        self.tr_Jze = None
-        self.tr_Jzi = None
-        self.tr_J_d = None
-        self.tr_CPe = None
-        self.tr_CPi = None
-        self.tr_IPe = None
-        self.tr_IPi = None
-        self.tr_times = None
+        self.tr_N_e = np.zeros((self.tr_coll[0], self.nz + 1))
+        self.tr_N_i = np.zeros((self.tr_coll[0], self.nz + 1))
+        self.tr_W_e = np.zeros((self.tr_coll[0], self.nz + 1))
+        self.tr_W_i = np.zeros((self.tr_coll[0], self.nz + 1))
+        self.tr_E_z = np.zeros((self.tr_coll[0], self.nz))
+        self.tr_phi = np.zeros((self.tr_coll[0], self.nz + 1))
+        self.tr_Jze = np.zeros((self.tr_coll[0], self.nz + 1))
+        self.tr_Jzi = np.zeros((self.tr_coll[0], self.nz + 1))
+        self.tr_J_d = np.zeros((self.tr_coll[0], self.nz))
+        self.tr_CPe = np.zeros((self.tr_coll[0], self.nz))
+        self.tr_CPi = np.zeros((self.tr_coll[0], self.nz))
+        self.tr_IPe = np.zeros((self.tr_coll[0], self.nz))
+        self.tr_IPi = np.zeros((self.tr_coll[0], self.nz))
+        self.tr_times = np.zeros((self.tr_coll[0]))
 
         # Power arrays
         self.tr_Pin_vst = None
@@ -681,36 +683,34 @@ class Diagnostics1D:
         self.tr_IPi_vst = None
 
         # Time averaged arrays
-        self.ta_N_e = None
-        self.ta_N_i = None
-        self.ta_W_e = None
-        self.ta_W_i = None
-        self.ta_E_z = None
-        self.ta_phi = None
-        self.ta_Jze = None
-        self.ta_Jzi = None
-        self.ta_J_d = None
-        self.ta_CPe = None
-        self.ta_CPi = None
-        self.ta_IPe = None
-        self.ta_IPi = None
-        self.ta_times = None
+        self.ta_N_e = np.zeros(self.nz + 1)
+        self.ta_N_i = np.zeros(self.nz + 1)
+        self.ta_W_e = np.zeros(self.nz + 1)
+        self.ta_W_i = np.zeros(self.nz + 1)
+        self.ta_E_z = np.zeros(self.nz)
+        self.ta_phi = np.zeros(self.nz + 1)
+        self.ta_Jze = np.zeros(self.nz + 1)
+        self.ta_Jzi = np.zeros(self.nz + 1)
+        self.ta_J_d = np.zeros(self.nz)
+        self.ta_CPe = np.zeros(self.nz)
+        self.ta_CPi = np.zeros(self.nz)
+        self.ta_IPe = np.zeros(self.nz)
+        self.ta_IPi = np.zeros(self.nz)
 
         # Interval arrays
-        self.in_N_e = [None for _ in range(len(self.in_slices))]
-        self.in_N_i = [None for _ in range(len(self.in_slices))]
-        self.in_W_e = [None for _ in range(len(self.in_slices))]
-        self.in_W_i = [None for _ in range(len(self.in_slices))]
-        self.in_E_z = [None for _ in range(len(self.in_slices))]
-        self.in_phi = [None for _ in range(len(self.in_slices))]
-        self.in_Jze = [None for _ in range(len(self.in_slices))]
-        self.in_Jzi = [None for _ in range(len(self.in_slices))]
-        self.in_J_d = [None for _ in range(len(self.in_slices))]
-        self.in_CPe = [None for _ in range(len(self.in_slices))]
-        self.in_CPi = [None for _ in range(len(self.in_slices))]
-        self.in_IPe = [None for _ in range(len(self.in_slices))]
-        self.in_IPi = [None for _ in range(len(self.in_slices))]
-        self.num_in_collections_this_output = [0 for _ in range(len(self.in_slices))]
+        self.in_N_e = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_N_i = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_W_e = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_W_i = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_E_z = np.zeros((len(self.in_slices), self.nz))
+        self.in_phi = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_Jze = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_Jzi = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_J_d = np.zeros((len(self.in_slices), self.nz))
+        self.in_CPe = np.zeros((len(self.in_slices), self.nz))
+        self.in_CPi = np.zeros((len(self.in_slices), self.nz))
+        self.in_IPe = np.zeros((len(self.in_slices), self.nz))
+        self.in_IPi = np.zeros((len(self.in_slices), self.nz))
 
         # Single diagnostic output arrays
         # Array of diagnostic species indices
@@ -736,7 +736,7 @@ class Diagnostics1D:
 
         self.J_d = []
         for i in range(len(self.species_names)):
-            self.J_d.append(np.zeros(self.nz + 1))
+            self.J_d.append(np.zeros(self.nz))
         self.J_d = np.stack(self.J_d)
 
         self.P_C = []
@@ -749,10 +749,39 @@ class Diagnostics1D:
             self.P_I.append(np.zeros(self.nz))
         self.P_I = np.stack(self.P_I)
 
-        self.E = np.zeros(self.nz + 1)
+        self.E = np.zeros(self.nz)
         self.phi = np.zeros(self.nz + 1)
-        self.E_last_step = np.zeros(self.nz + 1)
+        self.E_last_step = np.zeros(self.nz)
     
+    def _calculate_N_collections(self):
+        '''
+        Calculate the number of collections for time averaged and resolved
+        diagnostics at each diagnostic output.
+        '''
+        # Make arrays of length(num_outputs) for each diagnostic type
+        self.tr_coll = np.zeros(self.num_outputs, dtype=int)
+        self.ta_coll = np.zeros(self.num_outputs, dtype=int)
+
+        # Calculate the number of collections for each diagnostic type
+        # (for interval collections this is the number of collection 
+        #  intervals in each diagnostic output)
+        for ii in range(self.num_outputs):
+            total_steps = self.diag_stop[ii] - self.diag_start[ii]
+            self.tr_coll[ii] = int((total_steps // self.diag_time_resolving_steps) + 1)
+            self.ta_coll[ii] = int(total_steps + 1)
+        
+        if comm.rank != 0:
+            return
+        
+        # Save the number of collections to file
+        self.check_file(f'{self.diag_folder}/N_collections.dat')
+        with open(f'{self.diag_folder}/N_collections.dat', 'w') as f:
+            f.write('Number of Collections\n')
+            f.write('---------------------\n')
+            f.write('Diagnostic Output, Time Resolved, Time Averaged\n')
+            for ii in range(self.num_outputs):
+                f.write(f'{ii}, {self.tr_coll[ii]}, {self.ta_coll[ii]}\n')
+
     def _setup_Riz_diag(self, simulation_obj: CapacitiveDischargeExample):
         '''
         Set up diagnostics for ionization rate
@@ -853,53 +882,92 @@ class Diagnostics1D:
 
     def _get_interval_collection_steps(self):
         '''
-        Get step numbers to perform interval diagnostics. Computes:
-        - self.time_for_interval_collection: time for interval diagnostics
-        '''
-        # Get first set of collection times after convergence
-        num_periods = self.diag_start_time // self.in_period
-        first_collection_times = (num_periods + self.in_slices) * self.in_period
+        Set up an array containing steps to calculate interval diagnostics.
         
-        # Make sure collection steps are after convergence
-        while all([int(t/self.dt) < self.diag_start[0] for t in first_collection_times]):
-            first_collection_times += self.in_period
-            self.step_for_in_collection = np.round(first_collection_times / self.dt).astype(int)
+        Sets up a list with length equal to the number of diagnostic
+        outputs. Each element of the list is a stack of numpy arrays
+        containing the steps at which interval diagnostics are to be
+        performed for that diagnostic output. The length of the stack
+        is equal to the number of full intervals that fit within the
+        diagnostic output window.
 
-        # Convert times to steps
-        self.step_for_in_collection = np.round(first_collection_times / self.dt).astype(int)
+        Example
+        -------
+        Suppose we have 3 diagnostic outputs and can fit 4 intervals
+        within each diagnostic window. Then the list will obey:
+        
+        ```
+        len(self.in_coll_steps) = 3
+        ```
 
-        # Make sure collection times fall within simulation
-        for ii in range(len(self.step_for_in_collection) - 1, -1, -1):
-            if self.step_for_in_collection[ii] > int(self.max_time / self.dt):
-                # Remove the element
-                self.step_for_in_collection = np.delete(self.step_for_in_collection, ii)
-                self.in_slices = np.delete(self.in_slices, ii)
-        # Turn off interval diagnostics if no times are left
-        if len(self.step_for_in_collection) == 0:
-            for key in self.master_diagnostic_dict['interval']:
-                self.master_diagnostic_dict['interval'][key] = False
-        else:
-            # Find index of the next diagnostic output that each interval step fits into
-            next_output = np.full_like(self.step_for_in_collection, -1)
-            for ii in range(len(self.step_for_in_collection)):
-                for jj in range(len(self.diag_stop)):
-                    if (self.diag_start[jj] <= self.step_for_in_collection[ii] <= self.diag_stop[jj]):
-                        next_output[ii] = jj
-                        break
-            # Save the next output
-            try:
-                self.output_next_in_coll = min(next_output[next_output != -1])
-            except ValueError:
-                self.output_next_in_coll = -1
-            # Switch interval diagnostics off if necessary
-            if self.output_next_in_coll > 0:
-                for key in self.master_diagnostic_dict['interval']:
-                    self.master_diagnostic_dict['interval'][key] = False 
-            if self.output_next_in_coll == -1:
-                # Set all of self.original_interval_dict to False to turn off interval diagnostics
-                self.original_interval_dict_array = [False] * len(self.original_interval_dict_array)
-                temp_dict = {key: bool for key, bool in zip(self.master_diagnostic_dict['interval'].keys(), self.original_interval_dict_array)}
-                self.master_diagnostic_dict['interval'] = temp_dict
+        and for `ii` in `[0, 1, 2]`:
+
+        ```
+        len(self.in_coll_steps[ii]) = 4
+        ```
+        '''
+        self.in_coll_steps = []
+
+        for ii in range(self.num_outputs):
+            # Start time of current diag output window
+            output_start_t = self.diag_start[ii] * self.dt
+            output_end_t = self.diag_stop[ii] * self.dt
+
+            # Initialize collection times
+            collection_times = []
+
+            # Count number of periods before the diagnostic output
+            period_start_collection = int(output_start_t // self.in_period)
+
+            # Get collection times
+            # NOTE: We only collect for intervals that are fully within the diagnostic output
+            temp_collec_times = (period_start_collection + self.in_slices) * self.in_period
+            while any(temp_collec_times < output_start_t):
+                temp_collec_times += self.in_period
+                if any(temp_collec_times > output_end_t):
+                    self.in_coll_steps.append(np.array([]))
+                    break
+
+            # Append the first valid collection time
+            collection_times.append(temp_collec_times.copy())
+
+            # Get the times of each interval until output_end_t
+            while collection_times[-1][-1] < output_end_t:
+                temp_collec_times += self.in_period
+                collection_times.append(temp_collec_times.copy())
+
+            # Remove the last collection time if it is beyond the output_end_t
+            if collection_times[-1][-1] > output_end_t:
+                collection_times.pop()
+
+            # Convert the list of times to a numpy stack
+            if collection_times:
+                collection_times = np.stack(collection_times)
+            else:
+                collection_times = np.array([])
+
+            # Convert times to steps
+            collection_steps = np.round(collection_times / self.dt).astype(int)
+
+            # Add the steps to the collection array
+            self.in_coll_steps.append(collection_steps)
+
+        # Save the interval collection steps to file
+        if comm.rank != 0:
+            return
+
+        # Check if the folder exists
+        if not os.path.exists(self.diag_folder):
+            os.makedirs(self.diag_folder)
+        file = os.path.join(self.diag_folder, 'intrvl_collection_steps.dat')
+        with open(file, 'w') as f:
+            f.write('Interval Collection Steps\n')
+            for ii in range(self.num_outputs):
+                f.write(f'\nDiagnostic Output #{ii+1}\n')
+                f.write(f'---------------------\n')
+                for jj in range(len(self.in_coll_steps[ii])):
+                    f.write(f'Interval #{jj+1}:\n')
+                    f.write(f'    {self.in_coll_steps[ii][jj]}\n')
 
     def _get_time_resolved_steps(self, simulation_obj: CapacitiveDischargeExample):
         '''
@@ -942,8 +1010,8 @@ class Diagnostics1D:
         with open(file, 'w') as f:
             f.write('Simualtion Parameters\n')
             f.write('---------------------\n')
-            f.write(f'Timestep [s]={self.dt:e}\n')
-            f.write(f'Cell size [m]={self.dz:e}\n\n')
+            f.write(f'Timestep [s]={self.dt}\n')
+            f.write(f'Cell size [m]={self.dz}\n\n')
 
             f.write('Diagnostic Parameters\n')
             f.write('---------------------\n')
@@ -959,7 +1027,7 @@ class Diagnostics1D:
             f.write(f'Interval period [s]={self.in_period}\n')
             f.write(f'Times in interval={', '.join(map(str,self.in_slices))}\n\n')
 
-            f.write(f'Output #   |   Start Step   |   Stop Step   |   Start Time   |   Start Time\n')
+            f.write(f'Output #   |   Start Step   |   Stop Step   |   Start Time   |   Stop Time\n')
             f.write(f'------------------------------------------------------------------------------\n')
             for ii in range(self.num_outputs):
                 f.write(f'   {ii+1:5d}   | {self.diag_start[ii]:12d}   |{self.diag_stop[ii]:12d}   | {self.diag_start[ii]*self.dt:.8e} | {self.diag_stop[ii]*self.dt:.8e}\n')
@@ -1615,84 +1683,48 @@ class Diagnostics1D:
         Master function to perform diagnostics at each time step. Should be
         installed at least one step before the first diagnostic step.
         '''        
-        def do_time_resolved_diagnostics():
+        def do_time_resolved_diagnostics(tr_idx: int):
             '''
             Performs time resolved diagnostics
+
+            Parameters
+            ----------
+            tr_idx: int
+                Index of the time resolved diagnostic
             '''
             # Grab temporary dictionary for time resolved diagnostics
             temp_settings = self.master_diagnostic_dict['time_resolved']
 
+            # Add values
             if temp_settings['N_e']:
-                if self.tr_N_e is None:
-                    self.tr_N_e = self.N[0]
-                else:
-                    self.tr_N_e = np.vstack((self.tr_N_e, self.N[0]))
+                self.tr_N_e[tr_idx] = self.N[0]
             if temp_settings['N_i']:
-                if self.tr_N_i is None:
-                    self.tr_N_i = self.N[1]
-                else:
-                    self.tr_N_i = np.vstack((self.tr_N_i, self.N[1]))
+                self.tr_N_i[tr_idx] = self.N[1]
             if temp_settings['W_e']:
-                if self.tr_W_e is None:
-                    self.tr_W_e = self.W[0]
-                else:
-                    self.tr_W_e = np.vstack((self.tr_W_e, self.W[0]))
+                self.tr_W_e[tr_idx] = self.W[0]
             if temp_settings['W_i']:
-                if self.tr_W_i is None:
-                    self.tr_W_i = self.W[1]
-                else:
-                    self.tr_W_i = np.vstack((self.tr_W_i, self.W[1]))
+                self.tr_W_i[tr_idx] = self.W[1]
             if temp_settings['E_z']:
-                if self.tr_E_z is None:
-                    self.tr_E_z = self.E
-                else:
-                    self.tr_E_z = np.vstack((self.tr_E_z, self.E))
+                self.tr_E_z[tr_idx] = self.E
             if temp_settings['phi']:
-                if self.tr_phi is None:
-                    self.tr_phi = self.phi
-                else:
-                    self.tr_phi = np.vstack((self.tr_phi, self.phi))
+                self.tr_phi[tr_idx] = self.phi
             if temp_settings['Jze']:
-                if self.tr_Jze is None:
-                    self.tr_Jze = self.J[0]
-                else:
-                    self.tr_Jze = np.vstack((self.tr_Jze, self.J[0]))
+                self.tr_Jze[tr_idx] = self.J[0]
             if temp_settings['Jzi']:
-                if self.tr_Jzi is None:
-                    self.tr_Jzi = self.J[1]
-                else:
-                    self.tr_Jzi = np.vstack((self.tr_Jzi, self.J[1]))
+                self.tr_Jzi[tr_idx] = self.J[1]
             if temp_settings['J_d']:
-                if self.tr_J_d is None:
-                    self.tr_J_d = self.J_d
-                else:
-                    self.tr_J_d = np.vstack((self.tr_J_d, self.J_d))
+                self.tr_J_d[tr_idx] = self.J_d
             if temp_settings['CPe']:
-                if self.tr_CPe is None:
-                    self.tr_CPe = self.P_C[0]
-                else:
-                    self.tr_CPe = np.vstack((self.tr_CPe, self.P_C[0]))
+                self.tr_CPe[tr_idx] = self.P_C[0]
             if temp_settings['CPi']:
-                if self.tr_CPi is None:
-                    self.tr_CPi = self.P_C[1]
-                else:
-                    self.tr_CPi = np.vstack((self.tr_CPi, self.P_C[1]))
+                self.tr_CPi[tr_idx] = self.P_C[1]
             if temp_settings['IPe']:
-                if self.tr_IPe is None:
-                    self.tr_IPe = self.P_I[0]
-                else:
-                    self.tr_IPe = np.vstack((self.tr_IPe, self.P_I[0]))
+                self.tr_IPe[tr_idx] = self.P_I[0]
             if temp_settings['IPi']:
-                if self.tr_IPi is None:
-                    self.tr_IPi = self.P_I[1]
-                else:
-                    self.tr_IPi = np.vstack((self.tr_IPi, self.P_I[1]))
+                self.tr_IPi[tr_idx] = self.P_I[1]
 
-            # Append the time to the array
-            if self.tr_times is None:
-                self.tr_times = np.array([self.sim_ext.warpx.gett_new(lev=0)])
-            else:
-                self.tr_times = np.append(self.tr_times, self.sim_ext.warpx.gett_new(lev=0))
+            # Add time to time array
+            self.tr_times[tr_idx] = self.sim_ext.warpx.gett_new(lev=0)
 
         def do_time_averaged_diagnostics():
             '''
@@ -1701,73 +1733,35 @@ class Diagnostics1D:
             # Grab temporary dictionary for time averaged diagnostics
             temp_settings = self.master_diagnostic_dict['time_averaged']
 
+            # Add values now, average later
             if temp_settings['N_e']:
-                if self.ta_N_e is None:
-                    self.ta_N_e = self.N[0]
-                else:
-                    self.ta_N_e = np.vstack((self.ta_N_e, self.N[0]))
+                self.ta_N_e += self.N[0]
             if temp_settings['N_i']:
-                if self.ta_N_i is None:
-                    self.ta_N_i = self.N[1]
-                else:
-                    self.ta_N_i = np.vstack((self.ta_N_i, self.N[1]))
+                self.ta_N_i += self.N[1]
             if temp_settings['W_e']:
-                if self.ta_W_e is None:
-                    self.ta_W_e = self.W[0]
-                else:
-                    self.ta_W_e = np.vstack((self.ta_W_e, self.W[0]))
+                self.ta_W_e += self.W[0]
             if temp_settings['W_i']:
-                if self.ta_W_i is None:
-                    self.ta_W_i = self.W[1]
-                else:
-                    self.ta_W_i = np.vstack((self.ta_W_i, self.W[1]))
+                self.ta_W_i += self.W[1]
             if temp_settings['E_z']:
-                if self.ta_E_z is None:
-                    self.ta_E_z = self.E
-                else:
-                    self.ta_E_z = np.vstack((self.ta_E_z, self.E))
+                self.ta_E_z += self.E
             if temp_settings['phi']:
-                if self.ta_phi is None:
-                    self.ta_phi = self.phi
-                else:
-                    self.ta_phi = np.vstack((self.ta_phi, self.phi))
+                self.ta_phi += self.phi
             if temp_settings['Jze']:
-                if self.ta_Jze is None:
-                    self.ta_Jze = self.J[0]
-                else:
-                    self.ta_Jze = np.vstack((self.ta_Jze, self.J[0]))
+                self.ta_Jze += self.J[0]
             if temp_settings['Jzi']:
-                if self.ta_Jzi is None:
-                    self.ta_Jzi = self.J[1]
-                else:
-                    self.ta_Jzi = np.vstack((self.ta_Jzi, self.J[1]))
+                self.ta_Jzi += self.J[1]
             if temp_settings['J_d']:
-                if self.ta_J_d is None:
-                    self.ta_J_d = self.J_d
-                else:
-                    self.ta_J_d = np.vstack((self.ta_J_d, self.J_d))
+                self.ta_J_d += self.J_d
             if temp_settings['CPe']:
-                if self.ta_CPe is None:
-                    self.ta_CPe = self.P_C[0]
-                else:
-                    self.ta_CPe = np.vstack((self.ta_CPe, self.P_C[0]))
+                self.ta_CPe += self.P_C[0]
             if temp_settings['CPi']:
-                if self.ta_CPi is None:
-                    self.ta_CPi = self.P_C[1]
-                else:
-                    self.ta_CPi = np.vstack((self.ta_CPi, self.P_C[1]))
+                self.ta_CPi += self.P_C[1]
             if temp_settings['IPe']:
-                if self.ta_IPe is None:
-                    self.ta_IPe = self.P_I[0]
-                else:
-                    self.ta_IPe = np.vstack((self.ta_IPe, self.P_I[0]))
+                self.ta_IPe += self.P_I[0]
             if temp_settings['IPi']:
-                if self.ta_IPi is None:
-                    self.ta_IPi = self.P_I[1]
-                else:
-                    self.ta_IPi = np.vstack((self.ta_IPi, self.P_I[1]))
+                self.ta_IPi += self.P_I[1]
 
-        def do_interval_diagnostics(interval_idx):
+        def do_interval_diagnostics(interval_idx: int):
             '''
             Perform diagnostics at an time within interval self.interval_time
 
@@ -1780,74 +1774,33 @@ class Diagnostics1D:
             # Grab temporary dictionary for time averaged diagnostics
             temp_settings = self.master_diagnostic_dict['interval']
 
+            # Add values now, average later
             if temp_settings['N_e']:
-                if self.in_N_e[interval_idx] is None:
-                    self.in_N_e[interval_idx] = self.N[0]
-                else:
-                    self.in_N_e[interval_idx] = np.vstack((self.in_N_e[interval_idx], self.N[0]))
+                self.in_N_e[interval_idx] += self.N[0]
             if temp_settings['N_i']:
-                if self.in_N_i[interval_idx] is None:
-                    self.in_N_i[interval_idx] = self.N[1]
-                else:
-                    self.in_N_i[interval_idx] = np.vstack((self.in_N_i[interval_idx], self.N[1]))
+                self.in_N_i[interval_idx] += self.N[1]
             if temp_settings['W_e']:
-                if self.in_W_e[interval_idx] is None:
-                    self.in_W_e[interval_idx] = self.W[0]
-                else:
-                    self.in_W_e[interval_idx] = np.vstack((self.in_W_e[interval_idx], self.W[0]))
+                self.in_W_e[interval_idx] += self.W[0]
             if temp_settings['W_i']:
-                if self.in_W_i[interval_idx] is None:
-                    self.in_W_i[interval_idx] = self.W[1]
-                else:
-                    self.in_W_i[interval_idx] = np.vstack((self.in_W_i[interval_idx], self.W[1]))
+                self.in_W_i[interval_idx] += self.W[1]
             if temp_settings['E_z']:
-                if self.in_E_z[interval_idx] is None:
-                    self.in_E_z[interval_idx] = self.E
-                else:
-                    self.in_E_z[interval_idx] = np.vstack((self.in_E_z[interval_idx], self.E))
+                self.in_E_z[interval_idx] += self.E
             if temp_settings['phi']:
-                if self.in_phi[interval_idx] is None:
-                    self.in_phi[interval_idx] = self.phi
-                else:
-                    self.in_phi[interval_idx] = np.vstack((self.in_phi[interval_idx], self.phi))
+                self.in_phi[interval_idx] += self.phi
             if temp_settings['Jze']:
-                if self.in_Jze[interval_idx] is None:
-                    self.in_Jze[interval_idx] = self.J[0]
-                else:
-                    self.in_Jze[interval_idx] = np.vstack((self.in_Jze[interval_idx], self.J[0]))
+                self.in_Jze[interval_idx] += self.J[0]
             if temp_settings['Jzi']:
-                if self.in_Jzi[interval_idx] is None:
-                    self.in_Jzi[interval_idx] = self.J[1]
-                else:
-                    self.in_Jzi[interval_idx] = np.vstack((self.in_Jzi[interval_idx], self.J[1]))
+                self.in_Jzi[interval_idx] += self.J[1]
             if temp_settings['J_d']:
-                if self.in_J_d[interval_idx] is None:
-                    self.in_J_d[interval_idx] = self.J_d
-                else:
-                    self.in_J_d[interval_idx] = np.vstack((self.in_J_d[interval_idx], self.J_d))
+                self.in_J_d[interval_idx] += self.J_d
             if temp_settings['CPe']:
-                if self.in_CPe[interval_idx] is None:
-                    self.in_CPe[interval_idx] = self.P_C[0]
-                else:
-                    self.in_CPe[interval_idx] = np.vstack((self.in_CPe[interval_idx], self.P_C[0]))
+                self.in_CPe[interval_idx] += self.P_C[0]
             if temp_settings['CPi']:
-                if self.in_CPi[interval_idx] is None:
-                    self.in_CPi[interval_idx] = self.P_C[1]
-                else:
-                    self.in_CPi[interval_idx] = np.vstack((self.in_CPi[interval_idx], self.P_C[1]))
+                self.in_CPi[interval_idx] += self.P_C[1]
             if temp_settings['IPe']:
-                if self.in_IPe[interval_idx] is None:
-                    self.in_IPe[interval_idx] = self.P_I[0]
-                else:
-                    self.in_IPe[interval_idx] = np.vstack((self.in_IPe[interval_idx], self.P_I[0]))
+                self.in_IPe[interval_idx] += self.P_I[0]
             if temp_settings['IPi']:
-                if self.in_IPi[interval_idx] is None:
-                    self.in_IPi[interval_idx] = self.P_I[1]
-                else:
-                    self.in_IPi[interval_idx] = np.vstack((self.in_IPi[interval_idx], self.P_I[1]))
-
-            # Add one to the number of collections for this interval
-            self.num_in_collections_this_output[interval_idx] += 1
+                self.in_IPi[interval_idx] += self.P_I[1]
 
         # leave if we are beyond a diagnostic collection
         if self.curr_diag_output >= self.num_outputs:
@@ -1865,14 +1818,6 @@ class Diagnostics1D:
             # Clear the ieadf buffers for this collection
             self.clear_ieadf_buffers()
 
-            # Prepare interval diagnostic settings for this collection
-            if any(self.original_interval_dict_array):
-                if self.curr_diag_output == self.output_next_in_coll:
-                    # Revert interval diagnostics back to original settings
-                    temp_dict = {key: bool for key, bool in zip(self.master_diagnostic_dict['interval'].keys(), self.original_interval_dict_array)}
-                    self.master_diagnostic_dict['interval'] = temp_dict
-            self.num_in_collections_this_output = [0 for _ in range(len(self.in_slices))]
-
         # Synchronize, if necessary, to catch velocities up to positions
         if any(self.master_diagnostic_dict[key].get(metric) for key in self.master_diagnostic_dict for metric in ['Jze', 'Jzi', 'CPe', 'CPi', 'IPe', 'IPi', 'W_e', 'W_i']):
             self.sim_ext.warpx.synchronize()
@@ -1883,73 +1828,22 @@ class Diagnostics1D:
             save_E_last_step = True
         if self.master_diagnostic_dict['time_averaged']['J_d'] and (next_step >= self.diag_start[self.curr_diag_output]):
             save_E_last_step = True
-        if self.master_diagnostic_dict['interval']['J_d'] and (next_step in self.step_for_in_collection):
-            save_E_last_step = True
+        if len(self.in_coll_steps[self.curr_diag_output]) > 0:
+            if self.master_diagnostic_dict['interval']['J_d'] and next_step == self.in_coll_steps[self.curr_diag_output][self.curr_interval][self.curr_slice]:
+                save_E_last_step = True
 
         # Go through each diagnostic type and determine if we need to update
         # arrays for that diagnostic at this time step
         time_resolved = False
         time_averaged = False
         interval = False
-        turn_off_in = False
         if any(self.master_diagnostic_dict['time_resolved'].values()) and ((step - self.diag_start[self.curr_diag_output]) % self.diag_time_resolving_steps == 0) and step >= self.diag_start[self.curr_diag_output]:
             time_resolved = True
         if any(self.master_diagnostic_dict['time_averaged'].values()) and (step >= self.diag_start[self.curr_diag_output]):
             time_averaged = True
-        if any(self.master_diagnostic_dict['interval'].values()) and (step in self.step_for_in_collection):
-            interval = True
-            interval_idx = np.where(self.step_for_in_collection == step)[0][0]
-            # Calculate the next time for interval collections, if necessary
-            if step == self.step_for_in_collection[-1]:
-                # Update for next collection times
-                current_time = self.sim_ext.warpx.gett_new(lev=0)
-
-                num_periods = current_time // self.in_period
-                next_collection_time = (num_periods + self.in_slices) * self.in_period
-
-                while int(next_collection_time[-1] / self.dt) <= step:
-                    next_collection_time += self.in_period
-
-                # Convert times to steps
-                self.step_for_in_collection = np.round(next_collection_time / self.dt).astype(int)
-
-                # Find the index of the next diagnostic output that each interval step occurs during
-                next_output = np.full_like(self.step_for_in_collection, -1)
-                for ii in range(len(self.step_for_in_collection)):
-                    for jj in range(len(self.diag_stop)):
-                        if (self.diag_start[jj] <= self.step_for_in_collection[ii] <= self.diag_stop[jj]):
-                            next_output[ii] = jj
-                            break
-
-                if all(next_output == -1):
-                    if self.curr_diag_output == self.num_outputs - 1:
-                        turn_off_in = True
-                    else:
-                        while int(next_collection_time[-1] / self.dt) < self.diag_start[self.curr_diag_output + 1]:
-                            next_collection_time += self.in_period
-                        
-                        # Convert times to steps
-                        self.step_for_in_collection = np.round(next_collection_time / self.dt).astype(int)
-
-                        # Find the index of the next diagnostic output that each interval step occurs during
-                        next_output = np.full_like(self.step_for_in_collection, -1)
-                        for ii in range(len(self.step_for_in_collection)):
-                            for jj in range(len(self.diag_stop)):
-                                if (self.diag_start[jj] <= self.step_for_in_collection[ii] <= self.diag_stop[jj]):
-                                    next_output[ii] = jj
-                                    break
-                
-                if self.curr_diag_output not in next_output:
-                    turn_off_in = True
-                # Set the next output to the next output in the collection, and make sure it is not equal to -1
-                if self.curr_diag_output == self.num_outputs - 1:
-                    try:
-                        self.output_next_in_coll = min(next_output[next_output != -1])
-                    except ValueError:
-                        # This means that all of the collection steps fall after the last diagnostic stop step
-                        turn_off_in = True
-                else:
-                    self.output_next_in_coll = min(next_output[next_output != -1])
+        if any(self.master_diagnostic_dict['interval'].values()) and len(self.in_coll_steps[self.curr_diag_output]) > 0:
+            if (step == self.in_coll_steps[self.curr_diag_output][self.curr_interval][self.curr_slice]):
+                interval = True
 
         # Update arrays for diagnostics
         if (time_resolved or time_averaged or interval):
@@ -1969,11 +1863,19 @@ class Diagnostics1D:
 
         # Perform diagnostics
         if time_resolved:
-            do_time_resolved_diagnostics()
+            do_time_resolved_diagnostics(self.curr_tr)
+            self.curr_tr += 1
         if time_averaged:
             do_time_averaged_diagnostics()
+            self.curr_ta += 1
         if interval:
-            do_interval_diagnostics(interval_idx)
+            do_interval_diagnostics(self.curr_slice)
+            self.curr_slice += 1
+            if self.curr_slice == len(self.in_coll_steps[self.curr_diag_output][self.curr_interval]):
+                self.curr_interval += 1
+                self.curr_slice = 0
+                if self.curr_interval == len(self.in_coll_steps[self.curr_diag_output]):
+                    self.curr_interval = 0
 
         # Save the electric field for the displacement current
         if save_E_last_step:
@@ -1982,13 +1884,6 @@ class Diagnostics1D:
 
         # Finalize and save diagnostics
         if step == self.diag_stop[self.curr_diag_output]:
-
-            reset_at_end = False
-            if not all(self.master_diagnostic_dict['interval'].values()) and any(self.original_interval_dict_array):
-                # Set self.master_diagnostic_dict['interval'] back to original settings for last step
-                temp_dict = {key: bool for key, bool in zip(self.master_diagnostic_dict['interval'].keys(), self.original_interval_dict_array)}
-                self.master_diagnostic_dict['interval'] = temp_dict
-                reset_at_end = True
 
             # Save ieadf for each species and wall, if necessary
             if any(self.master_diagnostic_dict['ieadfs'].values()):
@@ -2009,69 +1904,21 @@ class Diagnostics1D:
             # Finalize and save diagnostic data
             self.save_diagnostic_data()
 
-            # Reset diagnostic arrays
-            self.reset_diagnostic_arrays()
-
             # Move to next diagnostic output
             self.curr_diag_output += 1
+            self.curr_tr = 0
+            self.curr_ta = 0
+            self.curr_interval = 0
+            self.curr_slice = 0
 
-            # If necessary, update the next interval diagnostic collection step
-            if any(self.master_diagnostic_dict['interval'].values()) and (self.curr_diag_output < self.num_outputs):
-                # Find the next diagnostic output that each interval collection step fits into
-                next_output = np.full_like(self.step_for_in_collection, -1)
-                for ii in range(len(self.step_for_in_collection)):
-                    for jj in range(len(self.diag_stop)):
-                        if (self.diag_start[jj] <= self.step_for_in_collection[ii] <= self.diag_stop[jj]):
-                            next_output[ii] = jj
-                            break
-
-                # If none of the collection steps fall into a diagnostic output, find the next valid output
-                if any(next_output == -1):
-                    # If all of the collection steps fall before the next diagnostic start step
-                    if all(self.step_for_in_collection < self.diag_start[self.curr_diag_output]):
-
-                        # Get a new set of collection times
-                        current_time = self.sim_ext.warpx.gett_new(lev=0)
-
-                        num_periods = current_time // self.in_period
-                        next_collection_time = (num_periods + self.in_slices) * self.in_period
-
-                        while int(next_collection_time[-1] / self.dt) < self.diag_start[self.curr_diag_output]:
-                            next_collection_time += self.in_period
-
-                        # Convert times to steps
-                        self.step_for_in_collection = np.round(next_collection_time / self.dt).astype(int)
-
-                        # Find the index of the next diagnostic output that each interval step occurs during
-                        next_output = np.full_like(self.step_for_in_collection, -1)
-                        for ii in range(len(self.step_for_in_collection)):
-                            for jj in range(len(self.diag_stop)):
-                                if (self.diag_start[jj] <= self.step_for_in_collection[ii] <= self.diag_stop[jj]):
-                                    next_output[ii] = jj
-                                    break
-
-                    # If all of the collection steps fall after the last diagnostic stop step
-                    if all(self.step_for_in_collection > self.diag_stop[-1]):
-                        turn_off_in = True
-
-                if self.curr_diag_output not in next_output:
-                    turn_off_in = True
-                # Save the next diagnostic output that the next interval output is saved at
-                self.output_next_in_coll = min(next_output[next_output != -1])
-
-            if reset_at_end:
-                # Turn interval diagnostics off for the rest of the diagnostic interval
-                for key in self.master_diagnostic_dict['interval']:
-                    self.master_diagnostic_dict['interval'][key] = False
-
-        if turn_off_in:
-            # Turn interval diagnostics off for the rest of the diagnostic interval
-            for key in self.master_diagnostic_dict['interval']:
-                self.master_diagnostic_dict['interval'][key] = False
+            # Reset diagnostic arrays
+            if self.curr_diag_output < self.num_outputs:
+                self.reset_diagnostic_arrays()
 
     def reset_diagnostic_arrays(self):
         '''
-        Reset diagnostic arrays
+        Reset diagnostic arrays, call after the diagnostic output
+        counter has been incremented.
         '''
         # Ieadf arrays
         self.ieadf_by_species = {}
@@ -2088,20 +1935,20 @@ class Diagnostics1D:
                 self.Riz_by_species[species] = np.zeros((self.Riz_nt, self.nz))
 
         # Time resolved arrays
-        self.tr_N_e = None
-        self.tr_N_i = None
-        self.tr_W_e = None
-        self.tr_W_i = None
-        self.tr_E_z = None
-        self.tr_phi = None
-        self.tr_Jze = None
-        self.tr_Jzi = None
-        self.tr_J_d = None
-        self.tr_CPe = None
-        self.tr_CPi = None
-        self.tr_IPe = None
-        self.tr_IPi = None
-        self.tr_times = None
+        self.tr_N_e = np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
+        self.tr_N_i = np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
+        self.tr_W_e = np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
+        self.tr_W_i = np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
+        self.tr_E_z = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
+        self.tr_phi = np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
+        self.tr_Jze = np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
+        self.tr_Jzi = np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
+        self.tr_J_d = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
+        self.tr_CPe = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
+        self.tr_CPi = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
+        self.tr_IPe = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
+        self.tr_IPi = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
+        self.tr_times = np.zeros((self.tr_coll[self.curr_diag_output]))
 
         # Power arrays
         self.tr_Pin_vst = None
@@ -2111,36 +1958,34 @@ class Diagnostics1D:
         self.tr_IPi_vst = None
 
         # Time averaged arrays
-        self.ta_N_e = None
-        self.ta_N_i = None
-        self.ta_W_e = None
-        self.ta_W_i = None
-        self.ta_E_z = None
-        self.ta_phi = None
-        self.ta_Jze = None
-        self.ta_Jzi = None
-        self.ta_J_d = None
-        self.ta_CPe = None
-        self.ta_CPi = None
-        self.ta_IPe = None
-        self.ta_IPi = None
-        self.ta_times = None
+        self.ta_N_e = np.zeros(self.nz + 1)
+        self.ta_N_i = np.zeros(self.nz + 1)
+        self.ta_W_e = np.zeros(self.nz + 1)
+        self.ta_W_i = np.zeros(self.nz + 1)
+        self.ta_E_z = np.zeros(self.nz)
+        self.ta_phi = np.zeros(self.nz + 1)
+        self.ta_Jze = np.zeros(self.nz + 1)
+        self.ta_Jzi = np.zeros(self.nz + 1)
+        self.ta_J_d = np.zeros(self.nz)
+        self.ta_CPe = np.zeros(self.nz)
+        self.ta_CPi = np.zeros(self.nz)
+        self.ta_IPe = np.zeros(self.nz)
+        self.ta_IPi = np.zeros(self.nz)
 
         # Interval arrays
-        self.in_N_e = [None for _ in range(len(self.in_slices))]
-        self.in_N_i = [None for _ in range(len(self.in_slices))]
-        self.in_W_e = [None for _ in range(len(self.in_slices))]
-        self.in_W_i = [None for _ in range(len(self.in_slices))]
-        self.in_E_z = [None for _ in range(len(self.in_slices))]
-        self.in_phi = [None for _ in range(len(self.in_slices))]
-        self.in_Jze = [None for _ in range(len(self.in_slices))]
-        self.in_Jzi = [None for _ in range(len(self.in_slices))]
-        self.in_J_d = [None for _ in range(len(self.in_slices))]
-        self.in_CPe = [None for _ in range(len(self.in_slices))]
-        self.in_CPi = [None for _ in range(len(self.in_slices))]
-        self.in_IPe = [None for _ in range(len(self.in_slices))]
-        self.in_IPi = [None for _ in range(len(self.in_slices))]
-        self.num_in_collections_this_output = [0 for _ in range(len(self.in_slices))]
+        self.in_N_e = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_N_i = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_W_e = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_W_i = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_E_z = np.zeros((len(self.in_slices), self.nz))
+        self.in_phi = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_Jze = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_Jzi = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_J_d = np.zeros((len(self.in_slices), self.nz))
+        self.in_CPe = np.zeros((len(self.in_slices), self.nz))
+        self.in_CPi = np.zeros((len(self.in_slices), self.nz))
+        self.in_IPe = np.zeros((len(self.in_slices), self.nz))
+        self.in_IPi = np.zeros((len(self.in_slices), self.nz))
 
     ###########################################################################
     # Saving Functions                                                        #
@@ -2230,322 +2075,123 @@ class Diagnostics1D:
             
             # Grab temporary dictionary for time averaged diagnostics
             active = self.master_diagnostic_dict['time_averaged']
+            collections = self.ta_coll[self.curr_diag_output]
             if active['N_e']:
-                collections = len(self.ta_N_e)
-                self.ta_N_e = np.sum(self.ta_N_e, axis=0) / collections # Average
-                self.ta_N_e /= self.dz
+                self.ta_N_e /= collections * self.dz
                 # self.ta_N_e /= self.charge_by_name[species[0]]
             if active['N_i']:
-                collections = len(self.ta_N_i)
-                self.ta_N_i = np.sum(self.ta_N_i, axis=0) / collections # Average
-                self.ta_N_i /= self.dz
+                self.ta_N_i /= collections * self.dz
                 # self.ta_N_i /= self.charge_by_name[species[1]]
             if active['W_e']:
-                collections = len(self.ta_W_e)
-                self.ta_W_e = np.sum(self.ta_W_e, axis=0) / collections # Average
                 v2_factor = self.mass_by_name[species[0]] / 2.0 / constants.q_e
-                self.ta_W_e *= v2_factor
+                self.ta_W_e *= v2_factor / collections
             if active['W_i']:
-                collections = len(self.ta_W_i)
-                self.ta_W_i = np.sum(self.ta_W_i, axis=0) / collections # Average
                 v2_factor = self.mass_by_name[species[1]] / 2.0 / constants.q_e
-                self.ta_W_i *= v2_factor
+                self.ta_W_i *= v2_factor / collections
             if active['E_z']:
-                collections = len(self.ta_E_z)
-                self.ta_E_z = np.sum(self.ta_E_z, axis=0) / collections 
+                self.ta_E_z /= collections 
             if active['phi']:
-                collections = len(self.ta_phi)
-                self.ta_phi = np.sum(self.ta_phi, axis=0) / collections
+                self.ta_phi /= collections
             if active['Jze']:
-                collections = len(self.ta_Jze)
-                self.ta_Jze = np.sum(self.ta_Jze, axis=0) / collections
                 Jz_factor = self.charge_by_name[species[0]] / self.dz
-                self.ta_Jze *= Jz_factor
+                self.ta_Jze *= Jz_factor / collections
             if active['Jzi']:
-                collections = len(self.ta_Jzi)
-                self.ta_Jzi = np.sum(self.ta_Jzi, axis=0) / collections
                 Jz_factor = self.charge_by_name[species[1]] / self.dz
-                self.ta_Jzi *= Jz_factor
+                self.ta_Jzi *= Jz_factor / collections
             if active['J_d']:
-                collections = len(self.ta_J_d)
-                self.ta_J_d = np.sum(self.ta_J_d, axis=0) / collections
-                self.ta_J_d *= constants.ep0 / self.dt
+                Jd_factor = constants.ep0 / self.dt
+                self.ta_J_d *= Jd_factor / collections
             if active['CPe']:
-                collections = len(self.ta_CPe)
-                self.ta_CPe = np.sum(self.ta_CPe, axis=0) / collections
                 CP_factor = self.charge_by_name[species[0]] / self.dz
-                self.ta_CPe *= CP_factor
+                self.ta_CPe *= CP_factor / collections
             if active['CPi']:
-                collections = len(self.ta_CPi)
-                self.ta_CPi = np.sum(self.ta_CPi, axis=0) / collections
                 CP_factor = self.charge_by_name[species[1]] / self.dz
-                self.ta_CPi *= CP_factor
+                self.ta_CPi *= CP_factor / collections
             if active['IPe']:
-                collections = len(self.ta_IPe)
-                self.ta_IPe = np.sum(self.ta_IPe, axis=0) / collections
                 IP_factor = self.charge_by_name[species[0]] / self.dz
-                self.ta_IPe *= IP_factor
+                self.ta_IPe *= IP_factor / collections
             if active['IPi']:
-                collections = len(self.ta_IPi)
-                self.ta_IPi = np.sum(self.ta_IPi, axis=0) / collections
                 IP_factor = self.charge_by_name[species[1]] / self.dz
-                self.ta_IPi *= IP_factor
+                self.ta_IPi *= IP_factor / collections
             
             # Grab temporary dictionary for interval diagnostics
             active = self.master_diagnostic_dict['interval']
             if active['N_e']:
-                if len(self.in_slices) == 1:
-                    if self.num_in_collections_this_output[0] == 0:
-                        pass
-                    elif self.num_in_collections_this_output[0] == 1:
-                        self.in_N_e = np.array(self.in_N_e[0]) / self.dz # / self.charge_by_name[species[0]]
-                    else:
-                        collections = len(self.in_N_e)
-                        self.in_N_e = np.sum(self.in_N_e, axis=0) / collections
-                        self.in_N_e /= self.dz
-                        # self.in_N_e /= self.charge_by_name[species[0]]
-                else:
-                    for ii in range(len(self.in_slices)):
-                        if self.num_in_collections_this_output[ii] == 0:
-                            pass
-                        elif self.num_in_collections_this_output[ii] == 1:
-                            self.in_N_e[ii] = np.array(self.in_N_e[ii]) / self.dz # / self.charge_by_name[species[0]]
-                        else:
-                            self.in_N_e[ii] = np.sum(self.in_N_e[ii], axis=0) / self.num_in_collections_this_output[ii]
-                            self.in_N_e[ii] /= self.dz
-                            # self.in_N_e[ii] /= self.charge_by_name[species[0]]
+                for ii in range(len(self.in_slices)):
+                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                        continue
+                    self.in_N_e[ii] /= len(self.in_coll_steps[self.curr_diag_output]) * self.dz
+                    # self.in_N_e[ii] /= self.charge_by_name[species[0]]
             if active['N_i']:
-                if len(self.in_slices) == 1:
-                    if self.num_in_collections_this_output[0] == 0:
-                        pass
-                    elif self.num_in_collections_this_output[0] == 1:
-                        self.in_N_i = np.array(self.in_N_i[1]) / self.dz # / self.charge_by_name[species[1]]
-                    else:
-                        collections = len(self.in_N_i)
-                        self.in_N_i = np.sum(self.in_N_i, axis=0) / collections
-                        self.in_N_i /= self.dz
-                        # self.in_N_i /= self.charge_by_name[species[1]]
-                else:
-                    for ii in range(len(self.in_slices)):
-                        if self.num_in_collections_this_output[ii] == 0:
-                            pass
-                        elif self.num_in_collections_this_output[ii] == 1:
-                            self.in_N_i[ii] = np.array(self.in_N_i[ii]) / self.dz # / self.charge_by_name[species[1]]
-                        else:
-                            self.in_N_i[ii] = np.sum(self.in_N_i[ii], axis=0) / self.num_in_collections_this_output[ii]
-                            self.in_N_i[ii] /= self.dz
-                            # self.in_N_i[ii] /= self.charge_by_name[species[1]]
+                for ii in range(len(self.in_slices)):
+                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                        continue
+                    self.in_N_i[ii] /= len(self.in_coll_steps[self.curr_diag_output]) * self.dz
+                    # self.in_N_i[ii] /= self.charge_by_name[species[1]]
             if active['W_e']:
                 v2_factor = self.mass_by_name[species[0]] / 2.0 / constants.q_e
-                if len(self.in_slices) == 1:
-                    if self.num_in_collections_this_output[0] == 0:
-                        pass
-                    elif self.num_in_collections_this_output[0] == 1:
-                        self.in_W_e = np.array(self.in_W_e[1]) * v2_factor
-                    else:
-                        collections = len(self.in_W_e)
-                        self.in_W_e = np.sum(self.in_W_e, axis=0) / collections
-                        self.in_W_e *= v2_factor
-                else:
-                    for ii in range(len(self.in_slices)):
-                        if self.num_in_collections_this_output[ii] == 0:
-                            pass
-                        elif self.num_in_collections_this_output[ii] == 1:
-                            self.in_W_e[ii] = np.array(self.in_W_e[ii]) * v2_factor
-                        else:
-                            self.in_W_e[ii] = np.sum(self.in_W_e[ii], axis=0) / self.num_in_collections_this_output[ii]
-                            self.in_W_e[ii] *= v2_factor
+                for ii in range(len(self.in_slices)):
+                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                        continue
+                    self.in_W_e[ii] *= v2_factor / len(self.in_coll_steps[self.curr_diag_output])
             if active['W_i']:
                 v2_factor = self.mass_by_name[species[1]] / 2.0 / constants.q_e
-                if len(self.in_slices) == 1:
-                    if self.num_in_collections_this_output[0] == 0:
-                        pass
-                    elif self.num_in_collections_this_output[0] == 1:
-                        self.in_W_i = np.array(self.in_W_i[1]) * v2_factor
-                    else:
-                        collections = len(self.in_W_i)
-                        self.in_W_i = np.sum(self.in_W_i, axis=0) / collections
-                        self.in_W_i *= v2_factor
-                else:
-                    for ii in range(len(self.in_slices)):
-                        if self.num_in_collections_this_output[ii] == 0:
-                            pass
-                        elif self.num_in_collections_this_output[ii] == 1:
-                            self.in_W_i[ii] = np.array(self.in_W_i[ii]) * v2_factor
-                        else:
-                            self.in_W_i[ii] = np.sum(self.in_W_i[ii], axis=0) / self.num_in_collections_this_output[ii]
-                            self.in_W_i[ii] *= v2_factor
+                for ii in range(len(self.in_slices)):
+                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                        continue
+                    self.in_W_i[ii] *= v2_factor / len(self.in_coll_steps[self.curr_diag_output])
             if active['E_z']:
-                if len(self.in_slices) == 1:
-                    if self.num_in_collections_this_output[0] == 0:
-                        pass
-                    elif self.num_in_collections_this_output[0] == 1:
-                        self.in_E_z = np.array(self.in_E_z[1])
-                    else:
-                        collections = len(self.in_E_z)
-                        self.in_E_z = np.sum(self.in_E_z, axis=0) / collections
-                else:
-                    for ii in range(len(self.in_slices)):
-                        if self.num_in_collections_this_output[ii] == 0:
-                            pass
-                        elif self.num_in_collections_this_output[ii] == 1:
-                            self.in_E_z[ii] = np.array(self.in_E_z[ii])
-                        else:
-                            self.in_E_z[ii] = np.sum(self.in_E_z[ii], axis=0) / self.num_in_collections_this_output[ii]
+                for ii in range(len(self.in_slices)):
+                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                        continue
+                    self.in_E_z[ii] /= len(self.in_coll_steps[self.curr_diag_output])
             if active['phi']:
-                if len(self.in_slices) == 1:
-                    if self.num_in_collections_this_output[0] == 0:
-                        pass
-                    elif self.num_in_collections_this_output[0] == 1:
-                        self.in_phi = np.array(self.in_phi[1])
-                    else:
-                        collections = len(self.in_phi)
-                        self.in_phi = np.sum(self.in_phi, axis=0) / collections
-                else:
-                    for ii in range(len(self.in_slices)):
-                        if self.num_in_collections_this_output[ii] == 0:
-                            pass
-                        elif self.num_in_collections_this_output[ii] == 1:
-                            self.in_phi[ii] = np.array(self.in_phi[ii])
-                        else:
-                            self.in_phi[ii] = np.sum(self.in_phi[ii], axis=0) / self.num_in_collections_this_output[ii]
+                for ii in range(len(self.in_slices)):
+                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                        continue
+                    self.in_phi[ii] /= len(self.in_coll_steps[self.curr_diag_output])
             if active['Jze']:
                 Jz_factor = self.charge_by_name[species[0]] / self.dz
-                if len(self.in_slices) == 1:
-                    if self.num_in_collections_this_output[0] == 0:
-                        pass
-                    elif self.num_in_collections_this_output[0] == 1:
-                        self.in_Jze = np.array(self.in_Jze[1]) * Jz_factor
-                    else:
-                        collections = len(self.in_Jze)
-                        self.in_Jze = np.sum(self.in_Jze, axis=0) / collections
-                        self.in_Jze *= Jz_factor
-                else:
-                    for ii in range(len(self.in_slices)):
-                        if self.num_in_collections_this_output[ii] == 0:
-                            pass
-                        elif self.num_in_collections_this_output[ii] == 1:
-                            self.in_Jze[ii] = np.array(self.in_Jze[ii]) * Jz_factor
-                        else:
-                            self.in_Jze[ii] = np.sum(self.in_Jze[ii], axis=0) / self.num_in_collections_this_output[ii]
-                            self.in_Jze[ii] *= Jz_factor
+                for ii in range(len(self.in_slices)):
+                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                        continue
+                    self.in_Jze[ii] *= Jz_factor / len(self.in_coll_steps[self.curr_diag_output])
             if active['Jzi']:
                 Jz_factor = self.charge_by_name[species[1]] / self.dz
-                if len(self.in_slices) == 1:
-                    if self.num_in_collections_this_output[0] == 0:
-                        pass
-                    elif self.num_in_collections_this_output[0] == 1:
-                        self.in_Jzi = np.array(self.in_Jzi[1]) * Jz_factor
-                    else:
-                        collections = len(self.in_Jzi)
-                        self.in_Jzi = np.sum(self.in_Jzi, axis=0) / collections
-                        self.in_Jzi *= Jz_factor
-                else:
-                    for ii in range(len(self.in_slices)):
-                        if self.num_in_collections_this_output[ii] == 0:
-                            pass
-                        elif self.num_in_collections_this_output[ii] == 1:
-                            self.in_Jzi[ii] = np.array(self.in_Jzi[ii]) * Jz_factor
-                        else:
-                            self.in_Jzi[ii] = np.sum(self.in_Jzi[ii], axis=0) / self.num_in_collections_this_output[ii]
-                            self.in_Jzi[ii] *= Jz_factor
+                for ii in range(len(self.in_slices)):
+                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                        continue
+                    self.in_Jzi[ii] *= Jz_factor / len(self.in_coll_steps[self.curr_diag_output])
             if active['J_d']:
-                if len(self.in_slices) == 1:
-                    if self.num_in_collections_this_output[0] == 0:
-                        pass
-                    elif self.num_in_collections_this_output[0] == 1:
-                        self.in_J_d = np.array(self.in_J_d[1]) * (constants.ep0 / self.dt)
-                    else:
-                        collections = len(self.in_J_d)
-                        self.in_J_d = np.sum(self.in_J_d, axis=0) / collections * (constants.ep0 / self.dt)
-                else:
-                    for ii in range(len(self.in_slices)):
-                        if self.num_in_collections_this_output[ii] == 0:
-                            pass
-                        elif self.num_in_collections_this_output[ii] == 1:
-                            self.in_J_d[ii] = np.array(self.in_J_d[ii]) * (constants.ep0 / self.dt)
-                        else:
-                            self.in_J_d[ii] = np.sum(self.in_J_d[ii], axis=0) / self.num_in_collections_this_output[ii] * (constants.ep0 / self.dt)
+                Jd_factor = constants.ep0 / self.dt
+                for ii in range(len(self.in_slices)):
+                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                        continue
+                    self.in_J_d[ii] *= Jd_factor / len(self.in_coll_steps[self.curr_diag_output])
             if active['IPe']:
                 IP_factor = self.charge_by_name[species[0]] / self.dz
-                if len(self.in_slices) == 1:
-                    if self.num_in_collections_this_output[0] == 0:
-                        pass
-                    elif self.num_in_collections_this_output[0] == 1:
-                        self.in_IPe = np.array(self.in_IPe[1]) * IP_factor
-                    else:
-                        collections = len(self.in_IPe)
-                        self.in_IPe = np.sum(self.in_IPe, axis=0) / collections
-                        self.in_IPe *= IP_factor
-                else:
-                    for ii in range(len(self.in_slices)):
-                        if self.num_in_collections_this_output[ii] == 0:
-                            pass
-                        elif self.num_in_collections_this_output[ii] == 1:
-                            self.in_IPe[ii] = np.array(self.in_IPe[ii]) * IP_factor
-                        else:
-                            self.in_IPe[ii] = np.sum(self.in_IPe[ii], axis=0) / self.num_in_collections_this_output[ii]
-                            self.in_IPe[ii] *= IP_factor
+                for ii in range(len(self.in_slices)):
+                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                        continue
+                    self.in_IPe[ii] *= IP_factor / len(self.in_coll_steps[self.curr_diag_output])
             if active['IPi']:
                 IP_factor = self.charge_by_name[species[1]] / self.dz
-                if len(self.in_slices) == 1:
-                    if self.num_in_collections_this_output[0] == 0:
-                        pass
-                    elif self.num_in_collections_this_output[0] == 1:
-                        self.in_IPi = np.array(self.in_IPi[1]) * IP_factor
-                    else:
-                        collections = len(self.in_IPi)
-                        self.in_IPi = np.sum(self.in_IPi, axis=0) / collections
-                        self.in_IPi *= IP_factor
-                else:
-                    for ii in range(len(self.in_slices)):
-                        if self.num_in_collections_this_output[ii] == 0:
-                            pass
-                        elif self.num_in_collections_this_output[ii] == 1:
-                            self.in_IPi[ii] = np.array(self.in_IPi[ii]) * IP_factor
-                        else:
-                            self.in_IPi[ii] = np.sum(self.in_IPi[ii], axis=0) / self.num_in_collections_this_output[ii]
-                            self.in_IPi[ii] *= IP_factor
+                for ii in range(len(self.in_slices)):
+                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                        continue
+                    self.in_IPi[ii] *= IP_factor / len(self.in_coll_steps[self.curr_diag_output])
             if active['CPe']:
                 CP_factor = self.charge_by_name[species[0]] / self.dz
-                if len(self.in_slices) == 1:
-                    if self.num_in_collections_this_output[0] == 0:
-                        pass
-                    elif self.num_in_collections_this_output[0] == 1:
-                        self.in_CPe = np.array(self.in_CPe[1]) * CP_factor
-                    else:
-                        collections = len(self.in_CPe)
-                        self.in_CPe = np.sum(self.in_CPe, axis=0) / collections
-                        self.in_CPe *= CP_factor
-                else:
-                    for ii in range(len(self.in_slices)):
-                        if self.num_in_collections_this_output[ii] == 0:
-                            pass
-                        elif self.num_in_collections_this_output[ii] == 1:
-                            self.in_CPe[ii] = np.array(self.in_CPe[ii]) * CP_factor
-                        else:
-                            self.in_CPe[ii] = np.sum(self.in_CPe[ii], axis=0) / self.num_in_collections_this_output[ii]
-                            self.in_CPe[ii] *= CP_factor
+                for ii in range(len(self.in_slices)):
+                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                        continue
+                    self.in_CPe[ii] *= CP_factor / len(self.in_coll_steps[self.curr_diag_output])
             if active['CPi']:
                 CP_factor = self.charge_by_name[species[1]] / self.dz
-                if len(self.in_slices) == 1:
-                    if self.num_in_collections_this_output[0] == 0:
-                        pass
-                    elif self.num_in_collections_this_output[0] == 1:
-                        self.in_CPi = np.array(self.in_CPi[1]) * CP_factor
-                    else:
-                        collections = len(self.in_CPi)
-                        self.in_CPi = np.sum(self.in_CPi, axis=0) / collections
-                        self.in_CPi *= CP_factor
-                else:
-                    for ii in range(len(self.in_slices)):
-                        if self.num_in_collections_this_output[ii] == 0:
-                            pass
-                        elif self.num_in_collections_this_output[ii] == 1:
-                            self.in_CPi[ii] = np.array(self.in_CPi[ii]) * CP_factor
-                        else:
-                            self.in_CPi[ii] = np.sum(self.in_CPi[ii], axis=0) / self.num_in_collections_this_output[ii]
-                            self.in_CPi[ii] *= CP_factor
+                for ii in range(len(self.in_slices)):
+                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                        continue
+                    self.in_CPi[ii] *= CP_factor / len(self.in_coll_steps[self.curr_diag_output])
 
         # Send ionization data to rank 0
         if self.Riz_switch and self.Riz_diag_counter == self.diag_collections_per_Riz:
@@ -2626,11 +2272,11 @@ class Diagnostics1D:
 
         # Save interval diagnostics
         active = self.master_diagnostic_dict['interval']
-        outs = self.num_in_collections_this_output
-        for key in active:
-            if active[key]:
-                arrays_dict = {f't{i+1:02d}': getattr(self, f'in_{key}')[i] for i in range(len(self.in_slices)) if outs[i] > 0}
-                np.savez(os.path.join(in_folder, f'{key}.npz'), **arrays_dict)
+        if len(self.in_coll_steps[self.curr_diag_output]) > 0:
+            for key in active:
+                if active[key]:
+                    arrays_dict = {f't{i+1:02d}': getattr(self, f'in_{key}')[i] for i in range(len(self.in_slices))}
+                    np.savez(os.path.join(in_folder, f'{key}.npz'), **arrays_dict)
 
     ###########################################################################
     # Helper Functions                                                        #
