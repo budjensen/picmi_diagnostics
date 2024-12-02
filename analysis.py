@@ -27,7 +27,7 @@ class Analysis:
         self.Riz_bool = False
         self.in_bool = False
         self.tr_bool = False
-        self.time_averaged_bool = False
+        self.ta_bool = False
 
         # Open file f'{self.directory}/diagnostic_times.dat' to get the cell size and time step
         with open(f'{self.directory}/diagnostic_times.dat', 'r') as f:
@@ -61,10 +61,10 @@ class Analysis:
                     print(f' - {len(self.ieadf_dir)} IEADF directory found for species: {", ".join(self.ieadf_dir.keys())}')
 
             # Initialize the energy and degree bin dictionaries
-            self.energy = {}
-            self.energy_edges = {}
-            self.deg = {}
-            self.deg_edges = {}
+            self.ieadf_energy = {}
+            self.ieadf_energy_edges = {}
+            self.ieadf_deg = {}
+            self.ieadf_deg_edges = {}
 
             # Initialize the left and right wall ieadf collection dictionaries
             self.lw_ieadf_colls = {}
@@ -80,21 +80,21 @@ class Analysis:
                 ieadf_dir = os.listdir(directory)
                 ieadf_dir.sort()
                 if 'bins_eV.npy' in ieadf_dir:
-                    self.energy[key] = np.load(directory + '/bins_eV.npy')
+                    self.ieadf_energy[key] = np.load(directory + '/bins_eV.npy')
                     # Energies are cell midpoints, and we need to get the edges for plotting with plt.pcolormesh
-                    self.energy_edges[key] = np.zeros(self.energy[key].size + 1)
-                    self.energy_edges[key][0] = self.energy[key][0] - (self.energy[key][1] - self.energy[key][0])/2
-                    self.energy_edges[key][1:-1] = (self.energy[key][1:] + self.energy[key][:-1])/2
-                    self.energy_edges[key][-1] = self.energy[key][-1] + (self.energy[key][-1] - self.energy[key][-2])/2
+                    self.ieadf_energy_edges[key] = np.zeros(self.ieadf_energy[key].size + 1)
+                    self.ieadf_energy_edges[key][0] = self.ieadf_energy[key][0] - (self.ieadf_energy[key][1] - self.ieadf_energy[key][0])/2
+                    self.ieadf_energy_edges[key][1:-1] = (self.ieadf_energy[key][1:] + self.ieadf_energy[key][:-1])/2
+                    self.ieadf_energy_edges[key][-1] = self.ieadf_energy[key][-1] + (self.ieadf_energy[key][-1] - self.ieadf_energy[key][-2])/2
                 elif not quiet_startup: 
                     print(f'   > Energy bins not found')
                 if 'bins_deg.npy' in ieadf_dir:
-                    self.deg[key] = np.load(directory + '/bins_deg.npy')
+                    self.ieadf_deg[key] = np.load(directory + '/bins_deg.npy')
                     # Degrees are cell midpoints, and we need to get the edges for plotting with plt.pcolormesh
-                    self.deg_edges[key] = np.zeros(self.deg[key].size + 1)
-                    self.deg_edges[key][0] = self.deg[key][0] - (self.deg[key][1] - self.deg[key][0])/2
-                    self.deg_edges[key][1:-1] = (self.deg[key][1:] + self.deg[key][:-1])/2
-                    self.deg_edges[key][-1] = self.deg[key][-1] + (self.deg[key][-1] - self.deg[key][-2])/2
+                    self.ieadf_deg_edges[key] = np.zeros(self.ieadf_deg[key].size + 1)
+                    self.ieadf_deg_edges[key][0] = self.ieadf_deg[key][0] - (self.ieadf_deg[key][1] - self.ieadf_deg[key][0])/2
+                    self.ieadf_deg_edges[key][1:-1] = (self.ieadf_deg[key][1:] + self.ieadf_deg[key][:-1])/2
+                    self.ieadf_deg_edges[key][-1] = self.ieadf_deg[key][-1] + (self.ieadf_deg[key][-1] - self.ieadf_deg[key][-2])/2
                 elif not quiet_startup: 
                     print(f'   > Degree bins not found')
 
@@ -251,26 +251,43 @@ class Analysis:
         if any(dir.startswith('time_averaged') for dir in self.dir):
             if not quiet_startup: 
                 print('Time averaged data found')
-            self.time_averaged_bool = True
-            self.time_averaged_colls = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('time_averaged')]
-            self.time_averaged_colls.sort()
+            self.ta_bool = True
+            temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('time_averaged')]
+            temp.sort()
+            self.ta_colls = {}
+            for coll in temp:
+                self.ta_colls[int(coll.split('/')[-1].split('_')[-1])] = coll
             if not quiet_startup: 
-                print(f' - {len(self.time_averaged_colls)} time averaged collections')
+                print(f' - {len(self.ta_colls)} time averaged collections')
 
             # Print collected fields
-            self.time_averaged_fields = [file.split('.')[0] for file in os.listdir(self.time_averaged_colls[0]) if file.endswith('.npy')]
-            self.time_averaged_fields.sort()
+            self.ta_fields = [file.split('.')[0] for file in os.listdir(self.ta_colls[1]) if file.endswith('.npy')]
+            self.ta_fields.sort()
             if not quiet_startup: 
-                print(f' - {len(self.time_averaged_fields)} fields: {", ".join(self.time_averaged_fields)}')
+                print(f' - {len(self.ta_fields)} fields: {", ".join(self.ta_fields)}')
 
             # Set up dictionary to store time averaged data
-            self.time_averaged_data = {}
-            for field in self.time_averaged_fields:
-                self.time_averaged_data[field] = {}
-                for collection in self.time_averaged_colls:
-                    self.time_averaged_data[field][int(collection.split('/')[-1].split('_')[-1])] = []
+            self.ta_data = {}
+            for field in self.ta_fields:
+                self.ta_data[field] = {}
+                for collection in self.ta_colls:
+                    self.ta_data[field][collection] = []
 
-        if self.in_bool or self.tr_bool or self.time_averaged_bool:
+        # Collect energy distribution function bins for normal edfs, if they exist
+        if any(field in ['EEdf', 'IEdf'] for field in self.ta_fields):
+            self.edf_energy = {}
+            if not quiet_startup: 
+                print('Energy distribution function data found')
+            if any('EEdf' in field for field in self.ta_fields):
+                self.edf_energy['EEdf'] = np.load(f'{self.directory}/eedf_bins_eV.npy')
+                if not quiet_startup: 
+                    print(f' - Eletron energy bins collected')
+            if any('IEdf' in field for field in self.ta_fields):
+                self.edf_energy['IEdf'] = np.load(f'{self.directory}/iedf_bins_eV.npy')
+                if not quiet_startup:
+                    print(f' - Ion energy bins collected')
+
+        if self.in_bool or self.tr_bool or self.ta_bool:
             self.cells = np.load(f'{self.directory}/cells.npy')
             self.nodes = np.load(f'{self.directory}/nodes.npy')
 
@@ -412,7 +429,7 @@ class Analysis:
             ax.margins(x=0)
         else:
             fig, ax = plt.subplots(1,1, dpi=dpi)
-            ax.plot(self.energy[species], Riz[species], label = species)
+            ax.plot(self.ieadf_energy[species], Riz[species], label = species)
             ax.set_ylim(0, np.max(Riz[species])*1.05)
             ax.set_xlabel('Position [m]')
             ax.set_ylabel('$R_i$ [m$^{-3}$s$^{-1}$]')
@@ -661,11 +678,11 @@ class Analysis:
             for spec in iedfs:
                 if isinstance(iedfs[spec], dict):
                     for wall in iedfs[spec]:
-                        ax.plot(self.energy[spec], iedfs[spec][wall], label = wall)
+                        ax.plot(self.ieadf_energy[spec], iedfs[spec][wall], label = wall)
                     ax.set_ylim(0, np.max([np.max(iedfs[spec][wall]) for wall in iedfs[spec]])*1.05)
                     ax.legend()
                 else:
-                    ax.plot(self.energy[spec], iedfs[spec])
+                    ax.plot(self.ieadf_energy[spec], iedfs[spec])
                     ax.set_ylim(0, np.max(iedfs[spec])*1.05)
             ax.set_xlabel('Energy [eV]')
             ax.set_ylabel('IEDF [eV$^{-1}$]')
@@ -675,11 +692,11 @@ class Analysis:
             fig, ax = plt.subplots(1,1, dpi=dpi)
             if isinstance(iedfs[species], dict):
                 for wall in iedfs[species]:
-                    ax.plot(self.energy[species], iedfs[species][wall], label = wall)
+                    ax.plot(self.ieadf_energy[species], iedfs[species][wall], label = wall)
                 ax.set_ylim(0, np.max([np.max(iedfs[species][wall]) for wall in iedfs[species]])*1.05)
                 ax.legend()
             else:
-                ax.plot(self.energy[species], iedfs[species])
+                ax.plot(self.ieadf_energy[species], iedfs[species])
                 ax.set_ylim(0, np.max(iedfs[species])*1.05)
             ax.set_xlabel('Energy [eV]')
             ax.set_ylabel('IEDF [eV$^{-1}$]')
@@ -708,9 +725,9 @@ class Analysis:
             if isinstance(self.avg_iedf_data[species], dict):
                 self.normalized_iedfs[species] = {}
                 for wall in self.avg_iedf_data[species]:
-                    self.normalized_iedfs[species][wall] = self.avg_iedf_data[species][wall] / np.trapz(self.avg_iedf_data[species][wall], self.energy[species])
+                    self.normalized_iedfs[species][wall] = self.avg_iedf_data[species][wall] / np.trapz(self.avg_iedf_data[species][wall], self.ieadf_energy[species])
             else:
-                self.normalized_iedfs[species] = self.avg_iedf_data[species] / np.trapz(self.avg_iedf_data[species], self.energy[species])
+                self.normalized_iedfs[species] = self.avg_iedf_data[species] / np.trapz(self.avg_iedf_data[species], self.ieadf_energy[species])
 
         return self.normalized_iedfs
     
@@ -756,7 +773,7 @@ class Analysis:
                 fig, ax = plt.subplots(1,1, dpi=dpi)
                 figs.append(fig)
                 axs.append(ax)
-                cbar = ax.pcolormesh(self.deg_edges[spec], self.energy_edges[spec], ieadfs[spec], shading='auto')
+                cbar = ax.pcolormesh(self.ieadf_deg_edges[spec], self.ieadf_energy_edges[spec], ieadfs[spec], shading='auto')
                 fig.colorbar(cbar, ax=ax, label='IEADF [eV$^{-1}$]')
                 ax.set_xlabel('Degrees')
                 ax.set_ylabel('Energy [eV]')
@@ -766,7 +783,7 @@ class Analysis:
             if isinstance(ieadfs[species], dict):
                 raise NotImplementedError('Cannot plot ieadfs with separate left and right wall data yet. Needs to be implemented.')
             fig, ax = plt.subplots(1,1, dpi=dpi)
-            cbar = ax.pcolormesh(self.deg_edges[species], self.energy_edges[species], ieadfs[species], shading='auto')
+            cbar = ax.pcolormesh(self.ieadf_deg_edges[species], self.ieadf_energy_edges[species], ieadfs[species], shading='auto')
             fig.colorbar(cbar, ax=ax, label='IEADF [eV$^{-1}$]')
             ax.set_xlabel('Degrees')
             ax.set_ylabel('Energy [eV]')
@@ -791,18 +808,18 @@ class Analysis:
 
             # Get the area factor to normalize the IEADF data. To use, divide by the area factor.
             # Area factor is the sine of the angle multiplied by the square root of the energy
-            area_factor = np.abs(np.sin(self.deg[species] * np.pi / 180))
-            area_factor = np.tile(area_factor, (self.energy[species].size, 1)) # Resize area factor to be size (energy.size, deg.size)
-            for ii in range(len(self.energy[species])):
-                area_factor[ii] = np.sqrt(self.energy[species][ii]) * area_factor[ii] # Multiply each row by the corresponding energy bin to caluclate the area factor
+            area_factor = np.abs(np.sin(self.ieadf_deg[species] * np.pi / 180))
+            area_factor = np.tile(area_factor, (self.ieadf_energy[species].size, 1)) # Resize area factor to be size (energy.size, deg.size)
+            for ii in range(len(self.ieadf_energy[species])):
+                area_factor[ii] = np.sqrt(self.ieadf_energy[species][ii]) * area_factor[ii] # Multiply each row by the corresponding energy bin to caluclate the area factor
 
             # Check if the species have been separated into left and right wall data
             if isinstance(self.avg_ieadf_data[species], dict):
                 self.normalized_ieadfs[species] = {}
                 for wall in self.avg_ieadf_data[species]:
-                    self.normalized_ieadfs[species][wall] = self.avg_ieadf_data[species][wall] / np.trapz(np.trapz(self.avg_ieadf_data[species][wall], self.energy[species], axis=0), self.deg[species]) / area_factor
+                    self.normalized_ieadfs[species][wall] = self.avg_ieadf_data[species][wall] / np.trapz(np.trapz(self.avg_ieadf_data[species][wall], self.ieadf_energy[species], axis=0), self.ieadf_deg[species]) / area_factor
             else:
-                self.normalized_ieadfs[species] = self.avg_ieadf_data[species] / np.trapz(np.trapz(self.avg_ieadf_data[species], self.energy[species], axis=0), self.deg[species]) / area_factor
+                self.normalized_ieadfs[species] = self.avg_ieadf_data[species] / np.trapz(np.trapz(self.avg_ieadf_data[species], self.ieadf_energy[species], axis=0), self.ieadf_deg[species]) / area_factor
 
         return self.normalized_ieadfs
     
@@ -992,10 +1009,29 @@ class Analysis:
         if field not in self.avg_in_data:
             self.avg_intervals(field)
         fig, ax = plt.subplots(1,1, dpi=dpi)
-        if field in self.cell_diags:
+
+        # Make avg line
+        if not hasattr(self, 'avg_tr_data'):
+            self.avg_time_resolved(field)
+        if field not in self.avg_tr_data:
+            self.avg_time_resolved(field)
+
+        # Get x-axis data
+        if len(self.avg_tr_data[field]) == len(self.cells):
             x = self.cells
-        else:
+            xlabel = 'Position [m]'
+        elif len(self.avg_tr_data[field]) == len(self.nodes):
             x = self.nodes
+            xlabel = 'Position [m]'
+        elif field == 'EEdf':
+            x = self.edf_energy[field]
+            xlabel = 'Energy [eV]'
+        elif field == 'IEdf':
+            x = self.edf_energy[field]
+            xlabel = 'Energy [eV]'
+        else:
+            raise ValueError('Could not get x-axis data')
+
         if interval is None:
             num = len(self.in_times)
             for ii in range(num):
@@ -1004,11 +1040,6 @@ class Analysis:
                         color = self._color_chooser(ii, num, cmap = cmap))
             ax.set_title(f'{field} intervals')
 
-            # Make avg line
-            if not hasattr(self, 'avg_tr_data'):
-                self.avg_time_resolved(field)
-            if field not in self.avg_tr_data:
-                self.avg_time_resolved(field)
             # Plot avg line
             ax.plot(x, self.avg_tr_data[field], label = 'Average', color = 'black')
             ax.legend(loc = [1.01,0], fontsize = 'small')
@@ -1016,7 +1047,7 @@ class Analysis:
         else:
             ax.plot(x, self.avg_in_data[field][interval])
             ax.set_title(f'{field} at t = {self.in_times[interval]}*T')
-        ax.set_xlabel('Position [m]')
+        ax.set_xlabel(xlabel)
         ax.set_ylabel(f'{field}')
         ax.margins(x=0)
 
@@ -1226,10 +1257,28 @@ class Analysis:
             fig, ax = plt.subplots(1,1, dpi=dpi)
             return_fig = True
 
-        if field in self.cell_diags:
+        # Make avg line
+        if not hasattr(self, 'avg_tr_data'):
+            self.avg_time_resolved(field)
+        if field not in self.avg_tr_data:
+            self.avg_time_resolved(field)
+
+        # Get x-axis data
+        if len(self.avg_tr_data[field]) == len(self.cells):
             x = self.cells
-        else:
+            xlabel = 'Position [m]'
+        elif len(self.avg_tr_data[field]) == len(self.nodes):
             x = self.nodes
+            xlabel = 'Position [m]'
+        elif field == 'EEdf':
+            x = self.edf_energy[field]
+            xlabel = 'Energy [eV]'
+        elif field == 'IEdf':
+            x = self.edf_energy[field]
+            xlabel = 'Energy [eV]'
+        else:
+            raise ValueError('Could not get x-axis data')
+
         if collection is None:
             # Plot lines from each collection
             num = len(self.avg_tr_collection_data[field])
@@ -1237,12 +1286,7 @@ class Analysis:
                 ax.plot(x, self.avg_tr_collection_data[field][coll],
                         label = f't={self.tr_times[coll][len(self.tr_times[coll]) // 2]:.4e}',
                         color = self._color_chooser(coll, num, cmap=cmap))
-                
-            # Make avg line
-            if not hasattr(self, 'avg_tr_data'):
-                self.avg_time_resolved(field)
-            if field not in self.avg_tr_data:
-                self.avg_time_resolved(field)
+
             # Plot avg line
             ax.plot(x, self.avg_tr_data[field], label = 'Average', color = 'black')
 
@@ -1250,7 +1294,7 @@ class Analysis:
             ax.plot(x, self.avg_tr_collection_data[field][collection],
                     label = f't={self.tr_times[collection][len(self.tr_times[collection]) // 2]:.4e}')
 
-        ax.set_xlabel('Position [m]')
+        ax.set_xlabel(xlabel)
         ax.set_ylabel(f'{field}')
         ax.set_title(f'Time averaged {field}')
         ax.margins(x=0)
@@ -1499,6 +1543,147 @@ class Analysis:
         # Display the power
         print(f'Total power input\n--------------------')
         print(f' {sum_string} = {total_power:.3e} W')
+
+    def load_time_averaged(self, field: str = None):
+        '''
+        Load the time averaged data
+
+        Parameters
+        ----------
+        field : str
+            The field to load
+        
+        Returns
+        -------
+        ta_data : dict[dict[stack of np.ndArray]]
+            The time averaged data
+        '''
+        if not self.ta_bool:
+            raise ValueError('Time averaged data not found')
+        if field is not None:
+            if field not in self.ta_fields:
+                raise ValueError(f'Field must be one of: {", ".join(self.ta_fields)}')
+            for coll in self.ta_data[field]:
+                self.ta_data[field][coll] = np.load(f'{self.ta_colls[coll]}/{field}.npy')
+        else:
+            for fld in self.ta_fields:
+                for coll in self.ta_data[fld]:
+                    self.ta_data[fld][coll] = np.load(f'{self.ta_colls[coll]}/{fld}.npy')
+        return self.ta_data
+
+    def avg_time_averaged(self, field: str = None):
+        '''
+        Average the time averaged data over all collections
+        
+        Parameters
+        ----------
+        field : str
+            The field to average. Must be one of self.ta_fields
+        
+        Returns
+        -------
+        avg_ta_data : dict[np.ndarray]
+            The averaged time averaged data
+        '''
+        if not self.ta_bool:
+            raise ValueError('Time averaged data not found')
+        if field is not None:
+            if field not in self.ta_fields:
+                raise ValueError(f'Field must be one of: {", ".join(self.ta_fields)}')
+            # Check if the field has been loaded into self.ta_data. If it unloaded, the list will be empty
+            if any([len(self.ta_data[field][key]) == 0 for key in self.ta_data[field]]):
+                self.load_time_averaged(field)
+            if not hasattr(self, 'avg_ta_data'):
+                self.avg_ta_data = {}
+            self.avg_ta_data[field] = np.mean([self.ta_data[field][coll] for coll in self.ta_data[field]], axis=0)
+        else:
+            self.avg_ta_data = {}
+            for fld in self.ta_fields:
+                if any([len(self.ta_data[fld][key]) == 0 for key in self.ta_data[fld]]):
+                    self.load_time_averaged(fld)
+                self.avg_ta_data[fld] = np.mean([self.ta_data[fld][coll] for coll in self.ta_data[fld]], axis=0)
+
+    def plot_time_averaged(self,
+                           field: str,
+                           plot_all_coll = True,
+                           ax = None,
+                           dpi=150,
+                           cmap = 'coolwarm'):
+        '''
+        Plot the time averaged data
+        
+        Parameters
+        ----------
+        field : str
+            The field to plot
+        plot_all_coll : bool, default=True
+            Whether to plot all collections on the same axis
+        ax : matplotlib.axes.Axes, default=None
+            The axes object to plot on. If None, creates a new figure and axes
+        dpi : int
+        
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+            The figure object
+        ax : matplotlib.axes.Axes
+            The axes object
+        '''
+        if not self.ta_bool:
+            raise ValueError('Time averaged data not found')
+        if field not in self.ta_fields:
+            raise ValueError(f'Field must be one of: {", ".join(self.ta_fields)}')
+        # Check if the field has been loaded. If it unloaded, the list will be empty
+        if any([len(self.ta_data[field][key]) == 0 for key in self.ta_data[field]]):
+            self.load_time_averaged(field)
+        
+        return_fig = False
+        if ax is None:
+            fig, ax = plt.subplots(1,1, dpi=dpi)
+            return_fig = True
+        
+        # Make avg line
+        if not hasattr(self, 'avg_ta_data'):
+            self.avg_time_averaged(field)
+        if field not in self.avg_ta_data:
+            self.avg_time_averaged(field)
+
+        # Get x-axis data
+        if len(self.avg_ta_data[field]) == len(self.cells):
+            x = self.cells
+            xlabel = 'Position [m]'
+        elif len(self.avg_ta_data[field]) == len(self.nodes):
+            x = self.nodes
+            xlabel = 'Position [m]'
+        elif field == 'EEdf':
+            x = self.edf_energy[field]
+            xlabel = 'Energy [eV]'
+        elif field == 'IEdf':
+            x = self.edf_energy[field]
+            xlabel = 'Energy [eV]'
+        else:
+            raise ValueError('Could not get x-axis data')
+
+        if plot_all_coll:
+            num = len(self.ta_data[field])
+            for coll in self.ta_data[field]:
+                ax.plot(x, self.ta_data[field][coll],
+                        label = f'Collection {coll}',
+                        alpha = 0.4,
+                        color = self._color_chooser(coll, num, cmap=cmap))
+
+        ax.plot(x, self.avg_ta_data[field], label='Average', color = 'black')
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(f'{field}')
+        ax.set_title(f'Time averaged {field}')
+        ax.margins(x=0)
+        if plot_all_coll:
+            ax.legend(fontsize = 'small')
+
+        if return_fig:
+            return fig, ax
+        else:
+            return ax
 
     def _color_chooser(self, idx, num_colors, cmap='GnBu'):
         '''
