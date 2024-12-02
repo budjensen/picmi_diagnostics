@@ -420,7 +420,9 @@ class Diagnostics1D:
                 'CPe': False,
                 'CPi': False,
                 'IPe': False,
-                'IPi': False
+                'IPi': False,
+                'EEdf': False,
+                'IEdf': False
             },
             'time_resolved': {
                 'N_i': True,
@@ -435,7 +437,9 @@ class Diagnostics1D:
                 'CPe': False,
                 'CPi': False,
                 'IPe': False,
-                'IPi': False
+                'IPi': False,
+                'EEdf': False,
+                'IEdf': False
             },
             'interval': {
                 'N_i': False,
@@ -450,7 +454,9 @@ class Diagnostics1D:
                 'CPe': False,
                 'CPi': False,
                 'IPe': False,
-                'IPi': False
+                'IPi': False,
+                'EEdf': False,
+                'IEdf': False
             },
             'time_resolved_power': {
                 'Pin_vst': False,
@@ -481,7 +487,9 @@ class Diagnostics1D:
                 'CPe': False,
                 'CPi': False,
                 'IPe': False,
-                'IPi': False
+                'IPi': False,
+                'EEdf': False,
+                'IEdf': False
             }
             time_resolved_dict = {
                 'N_i': True,
@@ -496,7 +504,9 @@ class Diagnostics1D:
                 'CPe': False,
                 'CPi': False,
                 'IPe': False,
-                'IPi': False
+                'IPi': False,
+                'EEdf': False,
+                'IEdf': False
             }
             interval_dict = {
                 'N_i': False,
@@ -511,7 +521,9 @@ class Diagnostics1D:
                 'CPe': False,
                 'CPi': False,
                 'IPe': False,
-                'IPi': False
+                'IPi': False,
+                'EEdf': False,
+                'IEdf': False
             }
             self.tr_power_dict = {
                 'Pin_vst': False,
@@ -615,8 +627,7 @@ class Diagnostics1D:
 
         # Save settings to file
         self._save_diagnostic_inputs()
-        if self.master_diagnostic_dict['ieadfs']['z_lo'] or self.master_diagnostic_dict['ieadfs']['z_hi']:
-            self._save_edf_settings()
+        self._save_edf_settings()
         self._save_cells_and_nodes(simulation_obj)
 
         # Set diagnostic output indices
@@ -639,8 +650,8 @@ class Diagnostics1D:
             Object of the main simulation class
         '''
         # Create ieadf bins
-        self.iedf_bin_edges = np.linspace(0, simulation_obj.iedf_max_eV, simulation_obj.num_bins + 1)
-        self.iedf_bin_centers = np.multiply(self.iedf_bin_edges[:-1] + self.iedf_bin_edges[1:], 0.5)
+        self.ieadf_bin_edges = np.linspace(0, simulation_obj.ieadf_max_eV, simulation_obj.num_bins_ieadf + 1)
+        self.ieadf_bin_centers = np.multiply(self.ieadf_bin_edges[:-1] + self.ieadf_bin_edges[1:], 0.5)
         self.iadf_bin_edges = np.linspace(-90, 90, 720 + 1)
         self.iadf_bin_centers = np.multiply(self.iadf_bin_edges[:-1] + self.iadf_bin_edges[1:], 0.5)
 
@@ -651,13 +662,19 @@ class Diagnostics1D:
             # Create arrays for z_lo and z_hi, if they are turned on
             for key, value in self.master_diagnostic_dict['ieadfs'].items():
                 if value:
-                    self.ieadf_by_species[species][key] = np.zeros((len(self.iedf_bin_centers), len(self.iadf_bin_centers)))
+                    self.ieadf_by_species[species][key] = np.zeros((len(self.ieadf_bin_centers), len(self.iadf_bin_centers)))
 
         # Ionization rate arrays
         if self.Riz_switch:
             self.Riz_by_species = {}
             for species in self.species_names[1:]:
                 self.Riz_by_species[species] = np.zeros((self.Riz_nt, self.nz))
+
+        # Create eedf and iedf bins
+        self.eedf_bin_edges = np.linspace(0, simulation_obj.eedf_max_eV, simulation_obj.num_bins + 1)
+        self.eedf_bin_centers = np.multiply(self.eedf_bin_edges[:-1] + self.eedf_bin_edges[1:], 0.5)
+        self.iedf_bin_edges = np.linspace(0, simulation_obj.iedf_max_eV, simulation_obj.num_bins + 1)
+        self.iedf_bin_centers = np.multiply(self.iedf_bin_edges[:-1] + self.iedf_bin_edges[1:], 0.5)
 
         # Time resolved arrays
         self.tr_N_e = np.zeros((self.tr_coll[0], self.nz + 1))
@@ -673,6 +690,8 @@ class Diagnostics1D:
         self.tr_CPi = np.zeros((self.tr_coll[0], self.nz))
         self.tr_IPe = np.zeros((self.tr_coll[0], self.nz))
         self.tr_IPi = np.zeros((self.tr_coll[0], self.nz))
+        self.tr_EEdf = np.zeros((self.tr_coll[0], len(self.eedf_bin_centers)))
+        self.tr_IEdf = np.zeros((self.tr_coll[0], len(self.iedf_bin_centers)))
         self.tr_times = np.zeros((self.tr_coll[0]))
 
         # Power arrays
@@ -696,6 +715,8 @@ class Diagnostics1D:
         self.ta_CPi = np.zeros(self.nz)
         self.ta_IPe = np.zeros(self.nz)
         self.ta_IPi = np.zeros(self.nz)
+        self.ta_EEdf = np.zeros(len(self.eedf_bin_centers))
+        self.ta_IEdf = np.zeros(len(self.iedf_bin_centers))
 
         # Interval arrays
         self.in_N_e = np.zeros((len(self.in_slices), self.nz + 1))
@@ -711,6 +732,8 @@ class Diagnostics1D:
         self.in_CPi = np.zeros((len(self.in_slices), self.nz))
         self.in_IPe = np.zeros((len(self.in_slices), self.nz))
         self.in_IPi = np.zeros((len(self.in_slices), self.nz))
+        self.in_EEdf = np.zeros((len(self.in_slices), len(self.eedf_bin_centers)))
+        self.in_IEdf = np.zeros((len(self.in_slices), len(self.iedf_bin_centers)))
 
         # Single diagnostic output arrays
         # Array of diagnostic species indices
@@ -748,6 +771,14 @@ class Diagnostics1D:
         for i in range(len(self.species_names)):
             self.P_I.append(np.zeros(self.nz))
         self.P_I = np.stack(self.P_I)
+
+        self.Edf = []
+        for i in range(len(self.species_names)):
+            if i == 0:
+                self.Edf.append(np.zeros(len(self.eedf_bin_centers)))
+            else:
+                self.Edf.append(np.zeros(len(self.iedf_bin_centers)))
+        self.Edf = np.stack(self.Edf)
 
         self.E = np.zeros(self.nz)
         self.phi = np.zeros(self.nz + 1)
@@ -1039,25 +1070,38 @@ class Diagnostics1D:
         if comm.rank != 0:
             return
 
-        # Make a diagnostics directory
-        if not os.path.exists(self.diag_folder):
-            os.makedirs(self.diag_folder)
+        if any(self.master_diagnostic_dict['ieadfs'].values()) or any(self.master_diagnostic_dict[key].get(metric) for key in self.master_diagnostic_dict for metric in ['EEdf', 'IEdf']):
+            # Make a diagnostics directory
+            if not os.path.exists(self.diag_folder):
+                os.makedirs(self.diag_folder)
 
-        # Make an ieadf directory for each ion species
-        self.ieadf_dir_by_species = {}
-        for species in self.species_names[1:]:
-            self.ieadf_dir_by_species[species] = os.path.join(self.diag_folder, f'ieadf_{species}')
-            if not os.path.exists(self.ieadf_dir_by_species[species]):
-                os.makedirs(self.ieadf_dir_by_species[species])
-        
-        # Save the ieadf energy bins
-        for species in self.species_names[1:]:
-            # Check if file exists
-            self.check_file(f'{self.ieadf_dir_by_species[species]}/bins_eV.npy')
-            self.check_file(f'{self.ieadf_dir_by_species[species]}/bins_deg.npy')
-            np.save(f'{self.ieadf_dir_by_species[species]}/bins_eV.npy', self.iedf_bin_centers)
-            np.save(f'{self.ieadf_dir_by_species[species]}/bins_deg.npy', self.iadf_bin_centers)
-    
+        # Save the wall IEADF settings
+        if any(self.master_diagnostic_dict['ieadfs'].values()):
+            # Make an ieadf directory for each ion species
+            self.ieadf_dir_by_species = {}
+            for species in self.species_names[1:]:
+                self.ieadf_dir_by_species[species] = os.path.join(self.diag_folder, f'ieadf_{species}')
+                if not os.path.exists(self.ieadf_dir_by_species[species]):
+                    os.makedirs(self.ieadf_dir_by_species[species])
+
+            # Save the ieadf energy bins
+            for species in self.species_names[1:]:
+                # Check if file exists
+                self.check_file(f'{self.ieadf_dir_by_species[species]}/bins_eV.npy')
+                self.check_file(f'{self.ieadf_dir_by_species[species]}/bins_deg.npy')
+                np.save(f'{self.ieadf_dir_by_species[species]}/bins_eV.npy', self.ieadf_bin_centers)
+                np.save(f'{self.ieadf_dir_by_species[species]}/bins_deg.npy', self.iadf_bin_centers)
+
+        # Save the normal EDF settings
+        if any(dict.get('EEdf') for dict in self.master_diagnostic_dict.values()):
+            # Save the eedf energy bins
+            self.check_file(f'{self.diag_folder}/eedf_bins_eV.npy')
+            np.save(f'{self.diag_folder}/eedf_bins_eV.npy', self.eedf_bin_centers)
+
+        if any(dict.get('IEdf') for dict in self.master_diagnostic_dict.values()):
+            self.check_file(f'{self.diag_folder}/iedf_bins_eV.npy')
+            np.save(f'{self.diag_folder}/iedf_bins_eV.npy', self.iedf_bin_centers)
+
     def _save_cells_and_nodes(self, simulation_obj: CapacitiveDischargeExample):
         '''
         Save the cell boundaries and centers to file
@@ -1515,7 +1559,113 @@ class Diagnostics1D:
 
         # Calculate the displacement current density
         self.J_d = self.E - self.E_last_step
+
+    def calculate_eedf(self):
+        '''
+        Gets a histogram of the electron energy distribution function.
     
+        Returns
+        -------
+        hist: np.ndarray
+            The histogram of the electron energy distribution function
+        '''
+        def get_eedf():
+            '''
+            Gets the electron energy distribution function.
+            '''
+            # Set up wrappers
+            species_wrapper = particle_containers.ParticleContainerWrapper('electrons')
+
+            try:
+                ux = np.concatenate(species_wrapper.get_particle_ux())
+                uy = np.concatenate(species_wrapper.get_particle_uy())
+                uz = np.concatenate(species_wrapper.get_particle_uz())
+                w  = np.concatenate(species_wrapper.get_particle_weight())
+            except ValueError:
+                ux = np.array([])
+                uy = np.array([])
+                uz = np.array([])
+                w = np.array([])
+
+            # Calculate the energy
+            v2 = (np.square(ux) + np.square(uy) + np.square(uz))
+            E = np.multiply(v2, 0.5 * constants.m_e / constants.q_e)
+
+            # Get the histogram (unnormalized)
+            hist, *_ = np.histogram(E, bins=self.eedf_bin_edges, density=False, weights=w/self.dz)
+
+            hist = np.copy(hist, order='C')
+
+            return hist
+    
+        # Get the ieadf on the processor
+        hist = get_eedf()
+
+        # Sum the ieadf histograms from all processors
+        hist_all = np.zeros_like(hist)
+        comm.Allreduce(hist, hist_all, op=mpi.SUM)
+
+        # Get index of species array in stack
+        idx = self.diag_idx_by_name['electrons']
+
+        self.Edf[idx] = hist_all
+
+    def calculate_iedf(self, species: str):
+        '''
+        Gets a histogram of the ion energy distribution function.
+        
+        Parameters
+        ----------
+        species: str
+            The name of the ion species for which to calculate the
+            distribution function
+
+        Returns
+        -------
+        hist: np.ndarray
+            The histogram of the ion energy distribution function
+        '''
+        def get_iedf(species):
+            '''
+            Gets the ion energy distribution function.
+            '''
+            # Set up wrappers
+            species_wrapper = particle_containers.ParticleContainerWrapper(species)
+
+            try:
+                ux = np.concatenate(species_wrapper.get_particle_ux())
+                uy = np.concatenate(species_wrapper.get_particle_uy())
+                uz = np.concatenate(species_wrapper.get_particle_uz())
+                w  = np.concatenate(species_wrapper.get_particle_weight())
+            except ValueError:
+                ux = np.array([])
+                uy = np.array([])
+                uz = np.array([])
+                w = np.array([])
+
+            # Calculate the energy
+            v2 = (np.square(ux) + np.square(uy) + np.square(uz))
+            E = np.multiply(v2, 0.5 * self.m_ion / constants.q_e)
+
+            # Get the histogram (unnormalized)
+            hist, *_ = np.histogram(E, bins=self.iedf_bin_edges, density=False, weights=w/self.dz)
+
+            hist = np.copy(hist, order='C')
+
+            return hist
+    
+        # Get the ieadf on the processor
+        hist = get_iedf(species)
+
+        # Sum the ieadf histograms from all processors
+        hist_all = np.zeros_like(hist)
+        comm.Allreduce(hist, hist_all, op=mpi.SUM)
+
+        # Get index of species array in stack
+        idx = self.diag_idx_by_name[species]
+
+        self.Edf[idx] = hist_all
+
     def calculate_ieadf(self, species: str, boundary: str):
         '''
         Gets a histogram of the ion energy angular distribution function at
@@ -1551,7 +1701,7 @@ class Diagnostics1D:
                 w  = np.concatenate(boundary_wrapper.get_particle_boundary_buffer(species, boundary,  'w', 0))
             except ValueError:
                 # Here if there are no ions at the boundary from this processor
-                return np.zeros((len(self.iedf_bin_centers), len(self.iadf_bin_centers)))
+                return np.zeros((len(self.ieadf_bin_centers), len(self.iadf_bin_centers)))
 
             # Calculate the ion energy and base its sign on the z velocity, but if z velocity is zero, use x velocity
             v2 = (np.square(ux) + np.square(uy) + np.square(uz))
@@ -1563,7 +1713,7 @@ class Diagnostics1D:
             angle = np.arctan(vxy / uz) * 180 / np.pi
 
             # Get the histogram (unnormalized)
-            hist, *_ = np.histogram2d(E, angle, bins=[self.iedf_bin_edges, self.iadf_bin_edges], density=False, weights=w/self.dz)
+            hist, *_ = np.histogram2d(E, angle, bins=[self.ieadf_bin_edges, self.iadf_bin_edges], density=False, weights=w/self.dz)
 
             # hist = np.ascontiguousarray(hist, dtype=np.float64)
             hist = np.copy(hist, order='C')
@@ -1722,6 +1872,10 @@ class Diagnostics1D:
                 self.tr_IPe[tr_idx] = self.P_I[0]
             if temp_settings['IPi']:
                 self.tr_IPi[tr_idx] = self.P_I[1]
+            if temp_settings['EEdf']:
+                self.tr_EEdf[tr_idx] = self.Edf[0]
+            if temp_settings['IEdf']:
+                self.tr_IEdf[tr_idx] = self.Edf[1]
 
             # Add time to time array
             self.tr_times[tr_idx] = self.sim_ext.warpx.gett_new(lev=0)
@@ -1760,6 +1914,10 @@ class Diagnostics1D:
                 self.ta_IPe += self.P_I[0]
             if temp_settings['IPi']:
                 self.ta_IPi += self.P_I[1]
+            if temp_settings['EEdf']:
+                self.ta_EEdf += self.Edf[0]
+            if temp_settings['IEdf']:
+                self.ta_IEdf += self.Edf[1]
 
         def do_interval_diagnostics(interval_idx: int):
             '''
@@ -1801,6 +1959,10 @@ class Diagnostics1D:
                 self.in_IPe[interval_idx] += self.P_I[0]
             if temp_settings['IPi']:
                 self.in_IPi[interval_idx] += self.P_I[1]
+            if temp_settings['EEdf']:
+                self.in_EEdf[interval_idx] += self.Edf[0]
+            if temp_settings['IEdf']:
+                self.in_IEdf[interval_idx] += self.Edf[1]
 
         # leave if we are beyond a diagnostic collection
         if self.curr_diag_output >= self.num_outputs:
@@ -1860,6 +2022,8 @@ class Diagnostics1D:
             if any(dict.get('CPi') for dict in self.master_diagnostic_dict.values()): self.update_P_C(self.species_names[1])
             if any(dict.get('IPe') for dict in self.master_diagnostic_dict.values()): self.update_P_I(self.species_names[0])
             if any(dict.get('IPi') for dict in self.master_diagnostic_dict.values()): self.update_P_I(self.species_names[1])
+            if any(dict.get('EEdf') for dict in self.master_diagnostic_dict.values()): self.calculate_eedf()
+            if any(dict.get('IEdf') for dict in self.master_diagnostic_dict.values()): self.calculate_iedf(self.species_names[1])
 
         # Perform diagnostics
         if time_resolved:
@@ -1927,7 +2091,7 @@ class Diagnostics1D:
             # Create arrays for z_lo and z_hi, if they are turned on
             for key, value in self.master_diagnostic_dict['ieadfs'].items():
                 if value:
-                    self.ieadf_by_species[species][key] = np.zeros((len(self.iedf_bin_centers), len(self.iadf_bin_centers)))
+                    self.ieadf_by_species[species][key] = np.zeros((len(self.ieadf_bin_centers), len(self.iadf_bin_centers)))
 
         # Ionization rate array
         if self.Riz_switch and self.Riz_diag_counter == 0:
@@ -1948,6 +2112,8 @@ class Diagnostics1D:
         self.tr_CPi = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
         self.tr_IPe = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
         self.tr_IPi = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
+        self.tr_EEdf = np.zeros((self.tr_coll[0], len(self.eedf_bin_centers)))
+        self.tr_IEdf = np.zeros((self.tr_coll[0], len(self.iedf_bin_centers)))
         self.tr_times = np.zeros((self.tr_coll[self.curr_diag_output]))
 
         # Power arrays
@@ -1971,6 +2137,8 @@ class Diagnostics1D:
         self.ta_CPi = np.zeros(self.nz)
         self.ta_IPe = np.zeros(self.nz)
         self.ta_IPi = np.zeros(self.nz)
+        self.ta_EEdf = np.zeros(len(self.eedf_bin_centers))
+        self.ta_IEdf = np.zeros(len(self.iedf_bin_centers))
 
         # Interval arrays
         self.in_N_e = np.zeros((len(self.in_slices), self.nz + 1))
@@ -1986,6 +2154,8 @@ class Diagnostics1D:
         self.in_CPi = np.zeros((len(self.in_slices), self.nz))
         self.in_IPe = np.zeros((len(self.in_slices), self.nz))
         self.in_IPi = np.zeros((len(self.in_slices), self.nz))
+        self.in_EEdf = np.zeros((len(self.in_slices), len(self.eedf_bin_centers)))
+        self.in_IEdf = np.zeros((len(self.in_slices), len(self.iedf_bin_centers)))
 
     ###########################################################################
     # Saving Functions                                                        #
@@ -2113,6 +2283,10 @@ class Diagnostics1D:
             if active['IPi']:
                 IP_factor = self.charge_by_name[species[1]] / self.dz
                 self.ta_IPi *= IP_factor / collections
+            if active['EEdf']:
+                self.ta_EEdf /= collections
+            if active['IEdf']:
+                self.ta_IEdf /= collections
             
             # Grab temporary dictionary for interval diagnostics
             active = self.master_diagnostic_dict['interval']
@@ -2192,6 +2366,16 @@ class Diagnostics1D:
                     if len(self.in_coll_steps[self.curr_diag_output]) == 0:
                         continue
                     self.in_CPi[ii] *= CP_factor / len(self.in_coll_steps[self.curr_diag_output])
+            if active['EEdf']:
+                for ii in range(len(self.in_slices)):
+                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                        continue
+                    self.in_EEdf[ii] /= len(self.in_coll_steps[self.curr_diag_output])
+            if active['IEdf']:
+                for ii in range(len(self.in_slices)):
+                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                        continue
+                    self.in_IEdf[ii] /= len(self.in_coll_steps[self.curr_diag_output])
 
         # Send ionization data to rank 0
         if self.Riz_switch and self.Riz_diag_counter == self.diag_collections_per_Riz:
