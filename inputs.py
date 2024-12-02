@@ -44,9 +44,6 @@ class CapacitiveDischargeExample(object):
 
     seed_nppc       = 64                                # Number of particles per cell
 
-    iedf_max_eV     = 40                                # Maximum energy for ion energy distribution function [eV]
-    num_bins        = 120                               # Number of bins for ion energy distribution function
-
     lambda_De       = np.sqrt(constants.ep0 * constants.kb * 2 * elec_temp / (2 * plasma_density * constants.q_e**2))
     omega_p         = np.sqrt(2 * plasma_density * constants.q_e**2 / (constants.ep0 * constants.m_e))
 
@@ -64,6 +61,15 @@ class CapacitiveDischargeExample(object):
     interval_diag_times = [0, 0.25, 0.5, 0.75]          # Times to evaluate interval diagnostics (as a fraction of the RF period), if turned on
     interval_time = 1 / freq                            # Time to run interval diagnostics
     Riz_collection_time = diag_time                     # Time to run ionization rate diagnostics
+
+    # Wall distribution function collection parameters
+    ieadf_max_eV     = 40                                # Maximum energy for ion energy distribution function [eV]
+    num_bins_ieadf   = 120                               # Number of bins for ion energy distribution function
+
+    # Normal distribution function collection parameters
+    eedf_max_eV     = 40                                # Maximum energy for electron energy distribution function [eV]
+    iedf_max_eV     = 40                                # Maximum energy for ion energy distribution function [eV]
+    num_bins        = 120                               # Number of bins for both distributions
 
     restart_checkpoint = False                          # Restart from checkpoint
     path_to_checkpoint = 'checkpoints/chkpt00000000'    # Path to desired checkpoint directory ending with the step number
@@ -102,7 +108,9 @@ class CapacitiveDischargeExample(object):
             'CPe': False,
             'CPi': False,
             'IPe': False,
-            'IPi': False
+            'IPi': False,
+            'EEdf': False,
+            'IEdf': False
         },
         'time_resolved': {
             'N_i': True,
@@ -118,6 +126,8 @@ class CapacitiveDischargeExample(object):
             'CPi': False,
             'IPe': False,
             'IPi': False,
+            'EEdf': False,
+            'IEdf': False
         },
         'interval': {
             'N_i': False,
@@ -132,7 +142,9 @@ class CapacitiveDischargeExample(object):
             'CPe': False,
             'CPi': False,
             'IPe': False,
-            'IPi': False
+            'IPi': False,
+            'EEdf': False,
+            'IEdf': False
         },
         'time_resolved_power': {
             'Pin_vst': False,
