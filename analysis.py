@@ -274,18 +274,16 @@ class Analysis:
                     self.ta_data[field][collection] = []
 
         # Collect energy distribution function bins for normal edfs, if they exist
-        if any(field in ['EEdf', 'IEdf'] for field in self.ta_fields):
+        edf_fields = ['EEdf', 'IEdf']
+        if any(hasattr(self, attr) and any(field in edf_fields for field in getattr(self, attr)) for attr in ['ta_fields', 'tr_fields', 'in_fields']):
             self.edf_energy = {}
-            if not quiet_startup: 
+            if not quiet_startup:
                 print('Energy distribution function data found')
-            if any('EEdf' in field for field in self.ta_fields):
-                self.edf_energy['EEdf'] = np.load(f'{self.directory}/eedf_bins_eV.npy')
-                if not quiet_startup: 
-                    print(f' - Eletron energy bins collected')
-            if any('IEdf' in field for field in self.ta_fields):
-                self.edf_energy['IEdf'] = np.load(f'{self.directory}/iedf_bins_eV.npy')
-                if not quiet_startup:
-                    print(f' - Ion energy bins collected')
+            for edf in edf_fields:
+                if any(hasattr(self, attr) and any(edf in field for field in getattr(self, attr)) for attr in ['ta_fields', 'tr_fields', 'in_fields']):
+                    self.edf_energy[edf] = np.load(f'{self.directory}/{edf.lower()}_bins_eV.npy')
+                    if not quiet_startup:
+                        print(f' - {edf} energy bins collected')
 
         if self.in_bool or self.tr_bool or self.ta_bool:
             self.cells = np.load(f'{self.directory}/cells.npy')
