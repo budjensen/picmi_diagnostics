@@ -979,7 +979,13 @@ class Analysis:
                     self.avg_in_data[fld].append(np.mean([self.in_data[fld][coll][ii] for coll in self.in_data[fld]], axis=0))
         return self.avg_in_data
     
-    def plot_avg_interval(self, field: str, interval: int = None, dpi : int = 150, cmap : str = 'GnBu'):
+    def plot_avg_interval(self,
+                          field: str,
+                          interval: int = None,
+                          plot_time_avg: bool = True,
+                          ax = None,
+                          dpi : int = 150,
+                          cmap : str = 'GnBu'):
         '''
         Plot the average interval data
         
@@ -990,6 +996,10 @@ class Analysis:
         interval : int, default=None
             The index (from 0 to len(self.interval_times - 1)) of the interval
             to plot. If None, plots all intervals on a single axis.
+        plot_time_avg : bool, default=True
+            Plot the time-averaged data on the same axis
+        ax : matplotlib.axes.Axes, default=None
+            The axes object to plot on. If None, creates a new figure and axes
         dpi : int
             The DPI of the plot
         cmap : str, default='GnBu'
@@ -1008,7 +1018,11 @@ class Analysis:
             self.avg_intervals(field)
         if field not in self.avg_in_data:
             self.avg_intervals(field)
-        fig, ax = plt.subplots(1,1, dpi=dpi)
+
+        return_fig = False
+        if ax is None:
+            fig, ax = plt.subplots(1,1, dpi=dpi)
+            return_fig = True
 
         # Make avg line
         if not hasattr(self, 'avg_tr_data'):
@@ -1041,17 +1055,23 @@ class Analysis:
             ax.set_title(f'{field} intervals')
 
             # Plot avg line
-            ax.plot(x, self.avg_tr_data[field], label = 'Average', color = 'black')
+            if plot_time_avg:
+                ax.plot(x, self.avg_tr_data[field], label = 'Average', color = 'black')
             ax.legend(loc = [1.01,0], fontsize = 'small')
 
         else:
-            ax.plot(x, self.avg_in_data[field][interval])
+            ax.plot(x, self.avg_in_data[field][interval],
+                    label = f't={self.in_times[interval]}*T',
+                    color = self._color_chooser(interval, len(self.in_times), cmap = cmap))
             ax.set_title(f'{field} at t = {self.in_times[interval]}*T')
         ax.set_xlabel(xlabel)
         ax.set_ylabel(f'{field}')
         ax.margins(x=0)
 
-        return fig, ax
+        if return_fig:
+            return fig, ax
+        else:
+            return ax
 
     def load_time_resolved(self, field: str = None):
         '''
