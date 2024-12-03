@@ -1327,20 +1327,34 @@ class Analysis:
         '''
         if not self.tr_bool:
             raise ValueError('Time resolved data not found')
-        if not hasattr(self, 'avg_tr_data'):
-            self.avg_time_resolved(field)
-        if field not in self.avg_tr_data:
-            self.avg_time_resolved(field)
 
         return_fig = False
         if ax is None:
             fig, ax = plt.subplots(1,1, dpi=dpi)
             return_fig = True
 
-        if field in self.cell_diags:
+        # Make avg line
+        if not hasattr(self, 'avg_tr_data'):
+            self.avg_time_resolved(field)
+        if field not in self.avg_tr_data:
+            self.avg_time_resolved(field)
+
+        # Get x-axis data
+        if len(self.avg_tr_data[field]) == len(self.cells):
             x = self.cells
-        else:
+            xlabel = 'Position [m]'
+        elif len(self.avg_tr_data[field]) == len(self.nodes):
             x = self.nodes
+            xlabel = 'Position [m]'
+        elif field == 'EEdf':
+            x = self.edf_energy[field]
+            xlabel = 'Energy [eV]'
+        elif field == 'IEdf':
+            x = self.edf_energy[field]
+            xlabel = 'Energy [eV]'
+        else:
+            raise ValueError('Could not get x-axis data')
+
         ax.plot(x, self.avg_tr_data[field], label='Average', color = 'black')
         ax.set_xlabel('Position [m]')
         ax.set_ylabel(f'{field}')
@@ -1356,7 +1370,8 @@ class Analysis:
                               field: str,
                               collection: int,
                               dpi=150,
-                              interval=100, 
+                              interval=100,
+                              repeat=False,
                               repeat_delay=500
                               ):
         '''
@@ -1370,8 +1385,10 @@ class Analysis:
             The index of the collection to animate
         dpi : int
             The DPI of the plot
-        interval : int, default=200
+        interval : int, default=100
             The interval between frames in milliseconds
+        repeat : bool, default=False
+            Whether to repeat the animation
         repeat_delay : int, default=1000
             The delay between loops in milliseconds
         
@@ -1389,13 +1406,27 @@ class Analysis:
             self.load_time_resolved(field)
 
         fig, ax = plt.subplots(1,1, dpi=dpi)
-        if field in self.cell_diags:
+
+        # Get x-axis data
+        if len(self.tr_data[field][collection][0]) == len(self.cells):
             x = self.cells
-        else:
+            xlabel = 'Position [m]'
+        elif len(self.tr_data[field][collection][0]) == len(self.nodes):
             x = self.nodes
+            xlabel = 'Position [m]'
+        elif field == 'EEdf':
+            x = self.edf_energy[field]
+            xlabel = 'Energy [eV]'
+        elif field == 'IEdf':
+            x = self.edf_energy[field]
+            xlabel = 'Energy [eV]'
+        else:
+            raise ValueError('Could not get x-axis data')
+
+        # Plot initial frame
         line, = ax.plot(x, self.tr_data[field][collection][0], color='black')
 
-        ax.set_xlabel('Position [m]')
+        ax.set_xlabel(xlabel)
         ax.set_ylabel(f'{field}')
         ax.set_title(f'Time resolved {field}')
         ax.margins(x=0)
@@ -1411,11 +1442,16 @@ class Analysis:
                 ax.set_ylim(min, max)
             return line,
 
+        frames = len(self.tr_data[field][collection])
+        if repeat:
+            frames *= 2
+
         anim = FuncAnimation(
             fig,
             update,
             frames = len(self.tr_data[field][collection]),
             interval=interval,
+            repeat=repeat,
             repeat_delay=repeat_delay
             )
         return anim
