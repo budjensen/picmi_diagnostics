@@ -603,6 +603,15 @@ class Diagnostics1D:
             'interval': interval_dict
         }
 
+        # Import boundaries for edfs
+        self.edf_bounds = np.array([])
+        if any(dict.get('EEdf') or dict.get('IEdf') for dict in self.master_diagnostic_dict.values()):
+            self.edf_bounds = np.array(simulation_obj.edf_boundaries)
+            if any(self.edf_bounds < 0) or any(self.edf_bounds > simulation_obj.gap):
+                raise ValueError('simulation_obj.edf_boundaries ERROR: EDF boundaries must be within the range [0, gap].')
+            if not all(self.edf_bounds[i] < self.edf_bounds[i + 1] for i in range(len(self.edf_bounds) - 1)):
+                raise ValueError('simulation_obj.edf_boundaries ERROR: EDF boundaries must be in ascending order.')
+
         # Set dictionaries of charge and mass for particles
         self.mass_by_name = {
             'electrons': constants.m_e,
@@ -633,7 +642,6 @@ class Diagnostics1D:
         # Set diagnostic output indices
         self.curr_diag_output = 0
         self.curr_tr = 0
-        self.curr_ta = 0
         self.curr_interval = 0
         self.curr_slice = 0
 
@@ -690,8 +698,8 @@ class Diagnostics1D:
         self.tr_CPi = np.zeros((self.tr_coll[0], self.nz))
         self.tr_IPe = np.zeros((self.tr_coll[0], self.nz))
         self.tr_IPi = np.zeros((self.tr_coll[0], self.nz))
-        self.tr_EEdf = np.zeros((self.tr_coll[0], len(self.eedf_bin_centers)))
-        self.tr_IEdf = np.zeros((self.tr_coll[0], len(self.iedf_bin_centers)))
+        self.tr_EEdf = np.zeros((self.tr_coll[0], len(self.edf_bounds) + 1, len(self.eedf_bin_centers)))
+        self.tr_IEdf = np.zeros((self.tr_coll[0], len(self.edf_bounds) + 1, len(self.iedf_bin_centers)))
         self.tr_times = np.zeros((self.tr_coll[0]))
 
         # Power arrays
@@ -715,8 +723,8 @@ class Diagnostics1D:
         self.ta_CPi = np.zeros(self.nz)
         self.ta_IPe = np.zeros(self.nz)
         self.ta_IPi = np.zeros(self.nz)
-        self.ta_EEdf = np.zeros(len(self.eedf_bin_centers))
-        self.ta_IEdf = np.zeros(len(self.iedf_bin_centers))
+        self.ta_EEdf = np.zeros((len(self.edf_bounds) + 1, len(self.eedf_bin_centers)))
+        self.ta_IEdf = np.zeros((len(self.edf_bounds) + 1, len(self.iedf_bin_centers)))
 
         # Interval arrays
         self.in_N_e = np.zeros((len(self.in_slices), self.nz + 1))
@@ -732,8 +740,8 @@ class Diagnostics1D:
         self.in_CPi = np.zeros((len(self.in_slices), self.nz))
         self.in_IPe = np.zeros((len(self.in_slices), self.nz))
         self.in_IPi = np.zeros((len(self.in_slices), self.nz))
-        self.in_EEdf = np.zeros((len(self.in_slices), len(self.eedf_bin_centers)))
-        self.in_IEdf = np.zeros((len(self.in_slices), len(self.iedf_bin_centers)))
+        self.in_EEdf = np.zeros((len(self.in_slices), len(self.edf_bounds) + 1, len(self.eedf_bin_centers)))
+        self.in_IEdf = np.zeros((len(self.in_slices), len(self.edf_bounds) + 1, len(self.iedf_bin_centers)))
 
         # Single diagnostic output arrays
         # Array of diagnostic species indices
@@ -775,9 +783,9 @@ class Diagnostics1D:
         self.Edf = []
         for i in range(len(self.species_names)):
             if i == 0:
-                self.Edf.append(np.zeros(len(self.eedf_bin_centers)))
+                self.Edf.append(np.zeros((len(self.edf_bounds) + 1, len(self.eedf_bin_centers))))
             else:
-                self.Edf.append(np.zeros(len(self.iedf_bin_centers)))
+                self.Edf.append(np.zeros((len(self.edf_bounds) + 1, len(self.iedf_bin_centers))))
         self.Edf = np.stack(self.Edf)
 
         self.E = np.zeros(self.nz)
@@ -1062,6 +1070,9 @@ class Diagnostics1D:
             f.write(f'------------------------------------------------------------------------------\n')
             for ii in range(self.num_outputs):
                 f.write(f'   {ii+1:5d}   | {self.diag_start[ii]:12d}   |{self.diag_stop[ii]:12d}   | {self.diag_start[ii]*self.dt:.8e} | {self.diag_stop[ii]*self.dt:.8e}\n')
+
+            if self.edf_bounds is not None:
+                f.write(f'\nEDF Boundaries [m]: {self.edf_bounds}\n')
 
     def _save_edf_settings(self):
         '''
@@ -1577,26 +1588,43 @@ class Diagnostics1D:
             species_wrapper = particle_containers.ParticleContainerWrapper('electrons')
 
             try:
+                z  = np.concatenate(species_wrapper.get_particle_z())
                 ux = np.concatenate(species_wrapper.get_particle_ux())
                 uy = np.concatenate(species_wrapper.get_particle_uy())
                 uz = np.concatenate(species_wrapper.get_particle_uz())
                 w  = np.concatenate(species_wrapper.get_particle_weight())
             except ValueError:
+                z  = np.array([])
                 ux = np.array([])
                 uy = np.array([])
                 uz = np.array([])
-                w = np.array([])
+                w  = np.array([])
 
             # Calculate the energy
             v2 = (np.square(ux) + np.square(uy) + np.square(uz))
             E = np.multiply(v2, 0.5 * constants.m_e / constants.q_e)
 
-            # Get the histogram (unnormalized)
-            hist, *_ = np.histogram(E, bins=self.eedf_bin_edges, density=False, weights=w/self.dz)
+            mask = np.zeros((len(self.edf_bounds) + 1, len(z)), dtype=bool)
+            if len(self.edf_bounds) > 0:
+                mask[0] = z < self.edf_bounds[0]
+                for ii in range(1, len(self.edf_bounds)):
+                    mask[ii] = (z >= self.edf_bounds[ii-1]) & (z < self.edf_bounds[ii])
+                mask[-1] = z >= self.edf_bounds[-1]
+            else:
+                mask[0] = np.ones_like(z, dtype=bool)
 
-            hist = np.copy(hist, order='C')
+            hist_by_mask = []
 
-            return hist
+            for i in range(len(self.edf_bounds) + 1):
+                # Get the histogram (unnormalized)
+                hist, _ = np.histogram(E[mask[i]], bins=self.eedf_bin_edges, density=False, weights=w[mask[i]] / self.dz)
+
+                hist = np.copy(hist, order='C')
+                hist_by_mask.append(hist)
+
+            hist_by_mask = np.stack(hist_by_mask)
+
+            return hist_by_mask
     
         # Get the ieadf on the processor
         hist = get_eedf()
@@ -1633,26 +1661,43 @@ class Diagnostics1D:
             species_wrapper = particle_containers.ParticleContainerWrapper(species)
 
             try:
+                z  = np.concatenate(species_wrapper.get_particle_z())
                 ux = np.concatenate(species_wrapper.get_particle_ux())
                 uy = np.concatenate(species_wrapper.get_particle_uy())
                 uz = np.concatenate(species_wrapper.get_particle_uz())
                 w  = np.concatenate(species_wrapper.get_particle_weight())
             except ValueError:
+                z  = np.array([])
                 ux = np.array([])
                 uy = np.array([])
                 uz = np.array([])
-                w = np.array([])
+                w  = np.array([])
 
             # Calculate the energy
             v2 = (np.square(ux) + np.square(uy) + np.square(uz))
             E = np.multiply(v2, 0.5 * self.m_ion / constants.q_e)
 
-            # Get the histogram (unnormalized)
-            hist, *_ = np.histogram(E, bins=self.iedf_bin_edges, density=False, weights=w/self.dz)
+            mask = np.zeros((len(self.edf_bounds) + 1, len(z)), dtype=bool)
+            if len(self.edf_bounds) > 0:
+                mask[0] = z < self.edf_bounds[0]
+                for ii in range(1, len(self.edf_bounds)):
+                    mask[ii] = (z >= self.edf_bounds[ii-1]) & (z < self.edf_bounds[ii])
+                mask[-1] = z >= self.edf_bounds[-1]
+            else:
+                mask[0] = np.ones_like(z, dtype=bool)
 
-            hist = np.copy(hist, order='C')
+            hist_by_mask = []
 
-            return hist
+            for i in range(len(self.edf_bounds) + 1):
+                # Get the histogram (unnormalized)
+                hist, _ = np.histogram(E[mask[i]], bins=self.iedf_bin_edges, density=False, weights=w[mask[i]] / self.dz)
+
+                hist = np.copy(hist, order='C')
+                hist_by_mask.append(hist)
+
+            hist_by_mask = np.stack(hist_by_mask)
+
+            return hist_by_mask
     
         # Get the ieadf on the processor
         hist = get_iedf(species)
@@ -2031,7 +2076,6 @@ class Diagnostics1D:
             self.curr_tr += 1
         if time_averaged:
             do_time_averaged_diagnostics()
-            self.curr_ta += 1
         if interval:
             do_interval_diagnostics(self.curr_slice)
             self.curr_slice += 1
@@ -2071,7 +2115,6 @@ class Diagnostics1D:
             # Move to next diagnostic output
             self.curr_diag_output += 1
             self.curr_tr = 0
-            self.curr_ta = 0
             self.curr_interval = 0
             self.curr_slice = 0
 
@@ -2112,8 +2155,8 @@ class Diagnostics1D:
         self.tr_CPi = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
         self.tr_IPe = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
         self.tr_IPi = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
-        self.tr_EEdf = np.zeros((self.tr_coll[0], len(self.eedf_bin_centers)))
-        self.tr_IEdf = np.zeros((self.tr_coll[0], len(self.iedf_bin_centers)))
+        self.tr_EEdf = np.zeros((self.tr_coll[self.curr_diag_output], len(self.edf_bounds) + 1, len(self.eedf_bin_centers)))
+        self.tr_IEdf = np.zeros((self.tr_coll[self.curr_diag_output], len(self.edf_bounds) + 1, len(self.iedf_bin_centers)))
         self.tr_times = np.zeros((self.tr_coll[self.curr_diag_output]))
 
         # Power arrays
@@ -2137,8 +2180,8 @@ class Diagnostics1D:
         self.ta_CPi = np.zeros(self.nz)
         self.ta_IPe = np.zeros(self.nz)
         self.ta_IPi = np.zeros(self.nz)
-        self.ta_EEdf = np.zeros(len(self.eedf_bin_centers))
-        self.ta_IEdf = np.zeros(len(self.iedf_bin_centers))
+        self.ta_EEdf = np.zeros((len(self.edf_bounds) + 1, len(self.eedf_bin_centers)))
+        self.ta_IEdf = np.zeros((len(self.edf_bounds) + 1, len(self.iedf_bin_centers)))
 
         # Interval arrays
         self.in_N_e = np.zeros((len(self.in_slices), self.nz + 1))
@@ -2154,8 +2197,8 @@ class Diagnostics1D:
         self.in_CPi = np.zeros((len(self.in_slices), self.nz))
         self.in_IPe = np.zeros((len(self.in_slices), self.nz))
         self.in_IPi = np.zeros((len(self.in_slices), self.nz))
-        self.in_EEdf = np.zeros((len(self.in_slices), len(self.eedf_bin_centers)))
-        self.in_IEdf = np.zeros((len(self.in_slices), len(self.iedf_bin_centers)))
+        self.in_EEdf = np.zeros((len(self.in_slices), len(self.edf_bounds) + 1, len(self.eedf_bin_centers)))
+        self.in_IEdf = np.zeros((len(self.in_slices), len(self.edf_bounds) + 1, len(self.iedf_bin_centers)))
 
     ###########################################################################
     # Saving Functions                                                        #
@@ -2437,7 +2480,10 @@ class Diagnostics1D:
         # Save time resolved diagnostics
         active = self.master_diagnostic_dict['time_resolved']
         for key in active:
-            if active[key]:
+            if (key in ['EEdf', 'IEdf']) and active[key]:
+                for ii in range(len(getattr(self, f'tr_{key}')[0])):
+                    np.save(os.path.join(tr_folder, f'{key}_{ii+1:02d}.npy'), getattr(self, f'tr_{key}')[:,ii])
+            elif active[key]:
                 np.save(os.path.join(tr_folder, f'{key}.npy'), getattr(self, f'tr_{key}'))
         if any(active.values()):
             np.save(os.path.join(tr_folder, 'times.npy'), self.tr_times)
@@ -2451,14 +2497,21 @@ class Diagnostics1D:
         # Save time averaged diagnostics
         active = self.master_diagnostic_dict['time_averaged']
         for key in active:
-            if active[key]:
+            if (key in ['EEdf', 'IEdf']) and active[key]:
+                for ii in range(len(getattr(self, f'ta_{key}'))):
+                    np.save(os.path.join(ta_folder, f'{key}_{ii+1:02d}.npy'), getattr(self, f'ta_{key}')[ii])
+            elif active[key]:
                 np.save(os.path.join(ta_folder, f'{key}.npy'), getattr(self, f'ta_{key}'))
 
         # Save interval diagnostics
         active = self.master_diagnostic_dict['interval']
         if len(self.in_coll_steps[self.curr_diag_output]) > 0:
             for key in active:
-                if active[key]:
+                if (key in ['EEdf', 'IEdf']) and active[key]:
+                    for ii in range(len(getattr(self, f'in_{key}')[0])):
+                        arrays_dict = {f't{i+1:02d}': getattr(self, f'in_{key}')[i, ii] for i in range(len(self.in_slices))}
+                        np.savez(os.path.join(in_folder, f'{key}_{ii+1:02d}.npz'), **arrays_dict)
+                elif active[key]:
                     arrays_dict = {f't{i+1:02d}': getattr(self, f'in_{key}')[i] for i in range(len(self.in_slices))}
                     np.savez(os.path.join(in_folder, f'{key}.npz'), **arrays_dict)
 

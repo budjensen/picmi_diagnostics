@@ -62,6 +62,7 @@ class CapacitiveDischargeExample(object):
     eedf_max_eV     = 40                                # Maximum energy for electron energy distribution function [eV]
     iedf_max_eV     = 40                                # Maximum energy for ion energy distribution function [eV]
     num_bins        = 120                               # Number of bins for both distributions
+    edf_boundaries  = []                                # Boundaries for spatially resolved edfs (if empty, will make one for the full domain)
 
     restart_checkpoint = False                          # Restart from checkpoint
     path_to_checkpoint = 'checkpoints/chkpt00000000'    # Path to desired checkpoint directory ending with the step number
@@ -355,7 +356,7 @@ class CapacitiveDischargeExample(object):
         const_diag = picmi.FieldDiagnostic(
             name = 'periodic',
             grid = self.grid,
-            period = f'{self.start_step}::{self.max_steps // 40}',
+            period = f'{self.start_step}::{(self.max_steps - self.start_step) // 40}',
             data_list = ['phi','rho_he_ions'],
             write_dir = './diags',
             warpx_format = 'openpmd',
@@ -365,7 +366,7 @@ class CapacitiveDischargeExample(object):
 
         checkpoint = picmi.Checkpoint(
             name = 'checkpt',
-            period = f'{self.start_step + int(self.convergence_time / self.dt)}::{self.max_steps // 4}',
+            period = f'{self.start_step}::{(self.max_steps - self.start_step) // 4}',
             write_dir = './checkpoints',
             warpx_file_min_digits = 8,
             warpx_file_prefix = f'chkpt'
@@ -401,7 +402,7 @@ class CapacitiveDischargeExample(object):
         ### Run until convergence ###
         #############################
         self.sim.step(self.convergence_steps - elapsed_steps - 1)
-        elapsed_steps += self.convergence_steps - 1
+        elapsed_steps = self.convergence_steps - 1
 
         # Set up the particle buffer for diagnostic collection
         particle_buffer = particle_containers.ParticleBoundaryBufferWrapper()

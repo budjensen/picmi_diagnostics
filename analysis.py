@@ -275,12 +275,12 @@ class Analysis:
 
         # Collect energy distribution function bins for normal edfs, if they exist
         edf_fields = ['EEdf', 'IEdf']
-        if any(hasattr(self, attr) and any(field in edf_fields for field in getattr(self, attr)) for attr in ['ta_fields', 'tr_fields', 'in_fields']):
+        if any(hasattr(self, attr) and any(field.startswith(edf) for field in getattr(self, attr)) for attr in ['ta_fields', 'tr_fields', 'in_fields'] for edf in edf_fields):
             self.edf_energy = {}
             if not quiet_startup:
                 print('Energy distribution function data found')
             for edf in edf_fields:
-                if any(hasattr(self, attr) and any(edf in field for field in getattr(self, attr)) for attr in ['ta_fields', 'tr_fields', 'in_fields']):
+                if any(hasattr(self, attr) and any(field.startswith(edf) for field in getattr(self, attr)) for attr in ['ta_fields', 'tr_fields', 'in_fields']):
                     self.edf_energy[edf] = np.load(f'{self.directory}/{edf.lower()}_bins_eV.npy')
                     if not quiet_startup:
                         print(f' - {edf} energy bins collected')
@@ -1035,11 +1035,11 @@ class Analysis:
         elif len(self.avg_tr_data[field]) == len(self.nodes):
             x = self.nodes
             xlabel = 'Position [m]'
-        elif field == 'EEdf':
-            x = self.edf_energy[field]
+        elif field.startswith('EEdf'):
+            x = self.edf_energy['EEdf']
             xlabel = 'Energy [eV]'
-        elif field == 'IEdf':
-            x = self.edf_energy[field]
+        elif field.startswith('IEdf'):
+            x = self.edf_energy['IEdf']
             xlabel = 'Energy [eV]'
         else:
             raise ValueError('Could not get x-axis data')
@@ -1288,11 +1288,11 @@ class Analysis:
         elif len(self.avg_tr_data[field]) == len(self.nodes):
             x = self.nodes
             xlabel = 'Position [m]'
-        elif field == 'EEdf':
-            x = self.edf_energy[field]
+        elif field.startswith('EEdf'):
+            x = self.edf_energy['EEdf']
             xlabel = 'Energy [eV]'
-        elif field == 'IEdf':
-            x = self.edf_energy[field]
+        elif field.startswith('IEdf'):
+            x = self.edf_energy['IEdf']
             xlabel = 'Energy [eV]'
         else:
             raise ValueError('Could not get x-axis data')
@@ -1364,11 +1364,11 @@ class Analysis:
         elif len(self.avg_tr_data[field]) == len(self.nodes):
             x = self.nodes
             xlabel = 'Position [m]'
-        elif field == 'EEdf':
-            x = self.edf_energy[field]
+        elif field.startswith('EEdf'):
+            x = self.edf_energy['EEdf']
             xlabel = 'Energy [eV]'
-        elif field == 'IEdf':
-            x = self.edf_energy[field]
+        elif field.startswith('IEdf'):
+            x = self.edf_energy['IEdf']
             xlabel = 'Energy [eV]'
         else:
             raise ValueError('Could not get x-axis data')
@@ -1432,11 +1432,11 @@ class Analysis:
         elif len(self.tr_data[field][collection][0]) == len(self.nodes):
             x = self.nodes
             xlabel = 'Position [m]'
-        elif field == 'EEdf':
-            x = self.edf_energy[field]
+        elif field.startswith('EEdf'):
+            x = self.edf_energy['EEdf']
             xlabel = 'Energy [eV]'
-        elif field == 'IEdf':
-            x = self.edf_energy[field]
+        elif field.startswith('IEdf'):
+            x = self.edf_energy['IEdf']
             xlabel = 'Energy [eV]'
         else:
             raise ValueError('Could not get x-axis data')
@@ -1709,11 +1709,11 @@ class Analysis:
         elif len(self.avg_ta_data[field]) == len(self.nodes):
             x = self.nodes
             xlabel = 'Position [m]'
-        elif field == 'EEdf':
-            x = self.edf_energy[field]
+        elif field.startswith('EEdf'):
+            x = self.edf_energy['EEdf']
             xlabel = 'Energy [eV]'
-        elif field == 'IEdf':
-            x = self.edf_energy[field]
+        elif field.startswith('IEdf'):
+            x = self.edf_energy['IEdf']
             xlabel = 'Energy [eV]'
         else:
             raise ValueError('Could not get x-axis data')
