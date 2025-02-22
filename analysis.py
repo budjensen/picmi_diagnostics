@@ -7,7 +7,7 @@ class Analysis:
     def __init__(self, directory: str = './diags', quiet_startup: bool = False):
         '''
         Initialize the Analysis object with the directory of the diagnostics data
-        
+
         Parameters
         ----------
         directory : str
@@ -43,7 +43,7 @@ class Analysis:
 
         # Check if any of the elements in self.dir start with ieadf
         if any(dir.startswith('ieadf') for dir in self.dir):
-            if not quiet_startup: 
+            if not quiet_startup:
                 print('IEADF data found')
             self.ieadf_bool = True
 
@@ -75,7 +75,7 @@ class Analysis:
 
             # Check if the ieadf directory has bins_eV.npy and bins_deg.npy
             for key, directory in self.ieadf_dir.items():
-                if not quiet_startup: 
+                if not quiet_startup:
                     print(f' - Looking into directory for species: {key}')
                 ieadf_dir = os.listdir(directory)
                 ieadf_dir.sort()
@@ -86,7 +86,7 @@ class Analysis:
                     self.ieadf_energy_edges[key][0] = self.ieadf_energy[key][0] - (self.ieadf_energy[key][1] - self.ieadf_energy[key][0])/2
                     self.ieadf_energy_edges[key][1:-1] = (self.ieadf_energy[key][1:] + self.ieadf_energy[key][:-1])/2
                     self.ieadf_energy_edges[key][-1] = self.ieadf_energy[key][-1] + (self.ieadf_energy[key][-1] - self.ieadf_energy[key][-2])/2
-                elif not quiet_startup: 
+                elif not quiet_startup:
                     print(f'   > Energy bins not found')
                 if 'bins_deg.npy' in ieadf_dir:
                     self.ieadf_deg[key] = np.load(directory + '/bins_deg.npy')
@@ -95,7 +95,7 @@ class Analysis:
                     self.ieadf_deg_edges[key][0] = self.ieadf_deg[key][0] - (self.ieadf_deg[key][1] - self.ieadf_deg[key][0])/2
                     self.ieadf_deg_edges[key][1:-1] = (self.ieadf_deg[key][1:] + self.ieadf_deg[key][:-1])/2
                     self.ieadf_deg_edges[key][-1] = self.ieadf_deg[key][-1] + (self.ieadf_deg[key][-1] - self.ieadf_deg[key][-2])/2
-                elif not quiet_startup: 
+                elif not quiet_startup:
                     print(f'   > Degree bins not found')
 
                 self.ieadf_data_lists[key] = {}
@@ -103,7 +103,7 @@ class Analysis:
                 if any(file.startswith('lw') for file in ieadf_dir):
                     self.lw_ieadf_colls[key] = [f'{directory}/{file}' for file in ieadf_dir if file.startswith('lw')]
                     self.lw_ieadf_colls[key].sort()
-                    if not quiet_startup: 
+                    if not quiet_startup:
                         print(f'   > {len(self.lw_ieadf_colls[key])} left wall collections')
                     # Initialize the left wall ieadf data dictionary
                     self.ieadf_data_lists[key]['lw'] = []
@@ -111,14 +111,14 @@ class Analysis:
                 if any(file.startswith('rw') for file in ieadf_dir):
                     self.rw_ieadf_colls[key] = [f'{directory}/{file}' for file in ieadf_dir if file.startswith('rw')]
                     self.rw_ieadf_colls[key].sort()
-                    if not quiet_startup: 
+                    if not quiet_startup:
                         print(f'   > {len(self.rw_ieadf_colls[key])} right wall collections')
                     # Initialize the right wall ieadf data dictionary
                     self.ieadf_data_lists[key]['rw'] = []
 
         # Check if any of the elements in self.dir start with r_ioniz
         if any(dir.startswith('r_ioniz') for dir in self.dir):
-            if not quiet_startup: 
+            if not quiet_startup:
                 print('Ionization rate data found')
             self.Riz_bool = True
 
@@ -129,7 +129,7 @@ class Analysis:
             for species_dir in temp:
                 # Save the species name as the dictionary key and the directory as the value
                 self.Riz_dir[species_dir.split('r_ioniz_')[-1]] = species_dir
-            if not quiet_startup: 
+            if not quiet_startup:
                 if len(self.Riz_dir) > 1:
                     print(f' - {len(self.Riz_dir)} Ionization rate directories found for species: {", ".join(self.Riz_dir.keys())}')
                 else:
@@ -149,7 +149,7 @@ class Analysis:
 
             # Check if the ieadf directory has bins_z.npy and bins_t.npy
             for key, directory in self.Riz_dir.items():
-                if not quiet_startup: 
+                if not quiet_startup:
                     print(f' - Looking into directory for species: {key}')
                 Riz_dir = os.listdir(directory)
                 Riz_dir.sort()
@@ -160,7 +160,7 @@ class Analysis:
                     self.Riz_z_edges[key][0]    = self.Riz_z[key][0] - (self.Riz_z[key][1] - self.Riz_z[key][0])/2
                     self.Riz_z_edges[key][1:-1] = (self.Riz_z[key][1:] + self.Riz_z[key][:-1])/2
                     self.Riz_z_edges[key][-1]   = self.Riz_z[key][-1] + (self.Riz_z[key][-1] - self.Riz_z[key][-2])/2
-                elif not quiet_startup: 
+                elif not quiet_startup:
                     print(f'   > Position bins not found')
                 if 'bins_t.npy' in Riz_dir:
                     self.Riz_t[key] = np.load(directory + '/bins_t.npy')
@@ -169,7 +169,7 @@ class Analysis:
                     self.Riz_t_edges[key][0]    = self.Riz_t[key][0] - (self.Riz_t[key][1] - self.Riz_t[key][0])/2
                     self.Riz_t_edges[key][1:-1] = (self.Riz_t[key][1:] + self.Riz_t[key][:-1])/2
                     self.Riz_t_edges[key][-1]   = self.Riz_t[key][-1] + (self.Riz_t[key][-1] - self.Riz_t[key][-2])/2
-                elif not quiet_startup: 
+                elif not quiet_startup:
                     print(f'   > Time bins not found')
 
                 self.Riz_data_lists[key] = {}
@@ -177,13 +177,13 @@ class Analysis:
                 if any(file.startswith('Riz') for file in Riz_dir):
                     self.Riz_colls[key] = [f'{directory}/{file}' for file in Riz_dir if file.startswith('Riz')]
                     self.Riz_colls[key].sort()
-                    if not quiet_startup: 
+                    if not quiet_startup:
                         print(f'   > {len(self.Riz_colls[key])} data collections')
                     # Initialize the data dictionary
                     self.Riz_data_lists[key] = []
 
         if any(dir.startswith('interval') for dir in self.dir):
-            if not quiet_startup: 
+            if not quiet_startup:
                 print('Interval data found')
             self.in_bool = True
             temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('interval')]
@@ -207,7 +207,7 @@ class Analysis:
                 # Print collected fields
                 self.in_fields = [file.split('.')[0] for file in os.listdir(self.in_colls[1]) if file.endswith('.npz')]
                 self.in_fields.sort()
-                if not quiet_startup: 
+                if not quiet_startup:
                     print(f' - {len(self.in_fields)} fields: {", ".join(self.in_fields)}')
 
                 # Set up dictionary to store interval data
@@ -218,7 +218,7 @@ class Analysis:
                         self.in_data[field][collection] = [0]*len(self.in_times)
 
         if any(dir.startswith('time_resolved') for dir in self.dir):
-            if not quiet_startup: 
+            if not quiet_startup:
                 print('Time resolved data found')
             self.tr_bool = True
             temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('time_resolved')]
@@ -227,14 +227,14 @@ class Analysis:
             for coll in temp:
                 self.tr_colls[int(coll.split('/')[-1].split('_')[-1])] = coll
             num_colls = len(self.tr_colls)
-            if not quiet_startup: 
+            if not quiet_startup:
                 print(f' - {num_colls} time resolved collections')
 
             if num_colls > 0:
                 # Print collected fields
                 self.tr_fields = [file.split('.')[0] for file in os.listdir(self.tr_colls[1]) if file.endswith('.npy') and file != 'times.npy']
                 self.tr_fields.sort()
-                if not quiet_startup: 
+                if not quiet_startup:
                     print(f' - {len(self.tr_fields)} fields: {", ".join(self.tr_fields)}')
 
                 # Set up dictionary to store time resolved data
@@ -248,8 +248,17 @@ class Analysis:
                 for collection in self.tr_data[field]:
                     self.tr_times[collection] = np.load(f'{self.tr_colls[collection]}/times.npy')
 
+            # Get the interval time in case avg_time_resolved_over_collections is called
+            with open(f'{self.directory}/diagnostic_times.dat', 'r') as f:
+                for line in f:
+                    if line.startswith('Interval period [s]='):
+                        self.interval_period = float(line.split('=')[1])
+                        break
+            if not quiet_startup:
+                print(f' - Assuming an RF period of {self.interval_period:.2e} s')
+
         if any(dir.startswith('time_averaged') for dir in self.dir):
-            if not quiet_startup: 
+            if not quiet_startup:
                 print('Time averaged data found')
             self.ta_bool = True
             temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('time_averaged')]
@@ -257,13 +266,13 @@ class Analysis:
             self.ta_colls = {}
             for coll in temp:
                 self.ta_colls[int(coll.split('/')[-1].split('_')[-1])] = coll
-            if not quiet_startup: 
+            if not quiet_startup:
                 print(f' - {len(self.ta_colls)} time averaged collections')
 
             # Print collected fields
             self.ta_fields = [file.split('.')[0] for file in os.listdir(self.ta_colls[1]) if file.endswith('.npy')]
             self.ta_fields.sort()
-            if not quiet_startup: 
+            if not quiet_startup:
                 print(f' - {len(self.ta_fields)} fields: {", ".join(self.ta_fields)}')
 
             # Set up dictionary to store time averaged data
@@ -292,7 +301,7 @@ class Analysis:
     def load_Riz_data_lists(self, species: str = None):
         '''
         Load the ionization rate data
-        
+
         Parameters
         ----------
         species : str, default=None
@@ -320,7 +329,7 @@ class Analysis:
     def get_avg_Riz_data(self):
         '''
         Get the average ionization rate data over all collections.
-    
+
         Returns
         -------
         avg_Riz_data : dict[np.ndarray]
@@ -365,7 +374,7 @@ class Analysis:
     def get_avg_Riz_vs_z_data(self):
         '''
         Get the average ionization rate versus z data over all collections.
-        
+
         Returns
         -------
         avg_Riz_vs_z_data : dict[np.ndarray]
@@ -375,7 +384,7 @@ class Analysis:
             raise ValueError('Ionization rate data not found')
         if not hasattr(self, 'Riz_vs_z_data_lists'):
             self.get_Riz_vs_z_data_lists()
-        
+
         # Initialize the dictionary to store the average data
         self.avg_Riz_vs_z_data = {}
         for species in self.Riz_vs_z_data_lists:
@@ -399,7 +408,7 @@ class Analysis:
             The species to plot. If None, plots all species on a single axis
         dpi : int
             The DPI of the plot
-        
+
         Returns
         -------
         fig : matplotlib.figure.Figure
@@ -448,7 +457,7 @@ class Analysis:
             The species to plot. If None, plots all species on separate figs
         dpi : int
             The DPI of the plot
-        
+
         Returns
         -------
         fig : matplotlib.figure.Figure or list[matplotlib.figure.Figure]
@@ -490,7 +499,7 @@ class Analysis:
     def load_ieadf_data_lists(self, species: str = None):
         '''
         Load the IEADF data
-        
+
         Parameters
         ----------
         species : str, default=None
@@ -526,12 +535,12 @@ class Analysis:
         '''
         Get the average IEADF over all collections. Optionally, average the
         left and right wall data separately.
-        
+
         Parameters
         ----------
         separate_rl : bool, default=False
             Average the left and right wall IEADF data separately if True
-    
+
         Returns
         -------
         avg_ieadf_data : dict[np.ndarray] or dict[dict[np.ndarray]]
@@ -588,12 +597,12 @@ class Analysis:
                 for array in self.ieadf_data_lists[species][wall]:
                     self.iedf_data_lists[species][wall].append(np.sum(array, axis=1))
         return self.iedf_data_lists
-    
+
     def get_avg_iedf_data(self, separate_rl: bool = False):
         '''
         Get the average IEDF over all collections. Optionally, average the
         left and right wall data separately.
-        
+
         Parameters
         ----------
         separate_rl : bool, default=False
@@ -610,7 +619,7 @@ class Analysis:
             raise ValueError('IEADF data not found')
         if not hasattr(self, 'iedf_data_lists'):
             self.get_iedf_data_lists()
-        
+
         # Average both walls data together
         if not separate_rl:
             # Initialize the dictionary to store the average IEDF data
@@ -634,7 +643,7 @@ class Analysis:
                     self.avg_iedf_data[species][wall] = np.mean(temp_array_list, axis=0)
 
         return self.avg_iedf_data
-    
+
     def plot_avg_iedf(self,
                       species: str = None,
                       separate_rl: bool = False,
@@ -653,7 +662,7 @@ class Analysis:
             Normalize the IEDF data
         dpi : int
             The DPI of the plot
-        
+
         Returns
         -------
         fig : matplotlib.figure.Figure
@@ -706,7 +715,7 @@ class Analysis:
     def normalize_iedf(self):
         '''
         Normalize the collection-averaged IEDF data
-        
+
         Returns
         -------
         iedf : dict[np.ndarray] or dict[dict[np.ndarray]]
@@ -728,7 +737,7 @@ class Analysis:
                 self.normalized_iedfs[species] = self.avg_iedf_data[species] / np.trapz(self.avg_iedf_data[species], self.ieadf_energy[species])
 
         return self.normalized_iedfs
-    
+
     def plot_avg_ieadf(self,
                        species: str = None,
                        normalize: bool = True,
@@ -744,7 +753,7 @@ class Analysis:
             Normalize the IEADF data
         dpi : int
             The DPI of the plot
-        
+
         Returns
         -------
         fig : matplotlib.figure.Figure
@@ -787,11 +796,11 @@ class Analysis:
             ax.set_ylabel('Energy [eV]')
             ax.set_title(f'{species} IEADF')
             return fig, ax
-    
+
     def normalize_ieadf(self):
         '''
         Normalize the collection-averaged IEADF data
-        
+
         Returns
         -------
         ieadf : dict[np.ndarray]
@@ -820,16 +829,16 @@ class Analysis:
                 self.normalized_ieadfs[species] = self.avg_ieadf_data[species] / np.trapz(np.trapz(self.avg_ieadf_data[species], self.ieadf_energy[species], axis=0), self.ieadf_deg[species]) / area_factor
 
         return self.normalized_ieadfs
-    
+
     def load_intervals(self, field: str = None):
         '''
         Load the interval data
-        
+
         Parameters
         ----------
         field : str
             The field to load
-        
+
         Returns
         -------
         in_data : dict[dict[list[np.ndArray]]]
@@ -840,7 +849,7 @@ class Analysis:
         if field is not None:
             if field not in self.in_fields:
                 raise ValueError(f'Field must be one of: {", ".join(self.in_fields)}')
-            
+
             for coll in self.in_data[field]:
                 temp = np.load(f'{self.in_colls[coll]}/{field}.npz')
                 # Unpack elements of the npz file from t01 to t{self.interval_times.size+1} into elements of a list
@@ -854,11 +863,11 @@ class Analysis:
                     for ii in range(len(self.in_times)):
                         self.in_data[fld][coll][ii] = temp[f't{ii+1:02d}']
         return self.in_data
-    
+
     def add_interval_field(self, field: str):
         '''
         Add an interval field to the interval data
-        
+
         Parameters
         ----------
         field : str
@@ -929,7 +938,7 @@ class Analysis:
             # Check if the field is already in self.in_fields before adding
             if field not in self.in_fields:
                 self.in_fields.append(field)
-        
+
         return self.in_data[field]
 
     def avg_intervals(self, field: str = None):
@@ -940,7 +949,7 @@ class Analysis:
         ----------
         field : str
             The field to average. Must be one of self.interval_fields
-        
+
         Returns
         -------
         avg_in_data : dict
@@ -976,7 +985,7 @@ class Analysis:
                 for ii in range(len(self.in_times)):
                     self.avg_in_data[fld].append(np.mean([self.in_data[fld][coll][ii] for coll in self.in_data[fld]], axis=0))
         return self.avg_in_data
-    
+
     def plot_avg_interval(self,
                           field: str,
                           interval: int = None,
@@ -986,7 +995,7 @@ class Analysis:
                           cmap : str = 'GnBu'):
         '''
         Plot the average interval data
-        
+
         Parameters
         ----------
         field : str
@@ -1023,16 +1032,17 @@ class Analysis:
             return_fig = True
 
         # Make avg line
-        if not hasattr(self, 'avg_tr_data'):
-            self.avg_time_resolved(field)
-        if field not in self.avg_tr_data:
-            self.avg_time_resolved(field)
+        if plot_time_avg:
+            if not hasattr(self, 'avg_tr_data'):
+                self.avg_time_resolved(field)
+            if field not in self.avg_tr_data:
+                self.avg_time_resolved(field)
 
         # Get x-axis data
-        if len(self.avg_tr_data[field]) == len(self.cells):
+        if len(self.avg_in_data[field][0]) == len(self.cells):
             x = self.cells
             xlabel = 'Position [m]'
-        elif len(self.avg_tr_data[field]) == len(self.nodes):
+        elif len(self.avg_in_data[field][0]) == len(self.nodes):
             x = self.nodes
             xlabel = 'Position [m]'
         elif field.startswith('EEdf'):
@@ -1079,7 +1089,7 @@ class Analysis:
         ----------
         field : str
             The field to load
-        
+
         Returns
         -------
         tr_data : dict[dict[stack of np.ndArray]]
@@ -1097,11 +1107,11 @@ class Analysis:
                 for coll in self.tr_data[fld]:
                     self.tr_data[fld][coll] = np.load(f'{self.tr_colls[coll]}/{fld}.npy')
         return self.tr_data
-    
+
     def add_time_resolved_field(self, field: str):
         '''
         Add a time resolved field to the time resolved data
-        
+
         Parameters
         ----------
         field : str
@@ -1162,16 +1172,16 @@ class Analysis:
             # Check if the field is already in self.tr_fields before adding
             if field not in self.tr_fields:
                 self.tr_fields.append(field)
-    
+
     def avg_time_resolved_collections(self, field: str = None):
         '''
         Average the time resolved data over each collection
-        
+
         Parameters
         ----------
         field : str
             The field to average. Must be one of self.tr_fields
-            
+
         Returns
         -------
         avg_tr_collection_data : dict[dict[np.ndarray]]
@@ -1199,16 +1209,16 @@ class Analysis:
                 for coll in self.tr_data[field]:
                     self.avg_tr_collection_data[fld][coll] = np.mean(self.tr_data[fld][coll], axis=0)
         return self.avg_tr_collection_data
-    
+
     def avg_time_resolved(self, field: str = None):
         '''
         Average the time resolved data over all collections
-        
+
         Parameters
         ----------
         field : str
             The field to average. Must be one of self.tr_fields
-            
+
         Returns
         -------
         avg_tr_data : dict[dict[np.ndarray]]
@@ -1233,6 +1243,71 @@ class Analysis:
                 self.avg_tr_data[fld] = np.mean(np.concatenate([self.tr_data[fld][coll] for coll in self.tr_data[fld]], axis = 0), axis=0)
         return self.avg_tr_data
 
+    def avg_time_resolved_over_collections(self, field: str = None):
+        '''
+        Average the time resolved data over all collections
+
+        Parameters
+        ----------
+        field : str
+            The field to average. Must be one of self.tr_fields
+
+        Returns
+        -------
+        avg_over_coll_tr_data : dict[dict[np.ndarray]]
+            The averaged time resolved data
+        '''
+        if not self.tr_bool:
+            raise ValueError('Time resolved data not found')
+        if field is not None:
+            if field not in self.tr_fields:
+                raise ValueError(f'Field must be one of: {", ".join(self.tr_fields)}')
+            # Check if the field has been loaded into self.time_resolved_data. If it unloaded, the list will be empty
+            if any([len(self.tr_data[field][key]) == 0 for key in self.tr_data[field]]):
+                self.load_time_resolved(field)
+
+            if not hasattr(self, 'avg_over_coll_tr_data'):
+                self.avg_over_coll_tr_data = {}
+
+            # Make sure each time resolved collection data array is the same size
+            if not all([np.array_equal(self.tr_data[field][coll][0], self.tr_data[field][coll][1]) for coll in self.tr_data[field]]):
+                # If the data is not the same size, get an array of the average data at sligtly adjusted time steps
+                tr_dt = self.tr_times[1][1] - self.tr_times[1][0]
+
+                # Get the time in the period of the first timestep of each collection
+                tr_coll_start = [self.tr_times[coll][0] % self.interval_period for coll in self.tr_data[field]]
+
+                # If the start times of the collections are all about the same,
+                # then take a slice of the first n time steps, where n is the
+                # number of time steps in the smallest collection
+                # TODO: Make this better. We could look at each start time and see if
+                # they things would be better aligned if we used the next timestep
+                close_enough = [False] * len(tr_coll_start)
+                for ii in range(len(tr_coll_start)):
+                    if np.allclose(tr_coll_start, tr_coll_start[ii], atol=self.interval_period/40):#tr_dt/2):
+                        close_enough[ii] = True
+                if all(close_enough):
+                    min_len = min([len(self.tr_data[field][coll]) for coll in self.tr_data[field]])
+                    self.avg_over_coll_tr_data[field] = np.stack(np.mean([self.tr_data[field][coll][:min_len] for coll in self.tr_data[field]], axis=0), axis=0)
+                else:
+                    raise ValueError(f'Start times of the collections are not within tolerance {tr_dt/2} of each other')
+
+            else:
+                # Average the data at each time step over each collection. ie. average the data at t=0 over all collections, t=1 over all collections, etc.
+                self.avg_over_coll_tr_data[field] = np.stack(np.mean([self.tr_data[field][coll] for coll in self.tr_data[field]], axis=0), axis=0)
+        else:
+            self.avg_over_coll_tr_data = {}
+            for fld in self.tr_fields:
+                if any([len(self.tr_data[fld][key]) == 0 for key in self.tr_data[fld]]):
+                    self.load_time_resolved(fld)
+
+                # Make sure each time resolved data array is the same size
+                if not all([np.array_equal(self.tr_data[fld][coll][0], self.tr_data[fld][coll][1]) for coll in self.tr_data[fld]]):
+                    raise ValueError('Time resolved data arrays are not the same size')
+
+                self.avg_over_coll_tr_data[fld] = np.stack(np.mean([self.tr_data[fld][coll] for coll in self.tr_data[fld]], axis=0), axis=0)
+        return self.avg_over_coll_tr_data
+
     def plot_avg_time_resolved_collection(self,
                                           field: str,
                                           collection: int = None,
@@ -1241,7 +1316,7 @@ class Analysis:
                                           cmap : str = 'GnBu'):
         '''
         Plot the average time resolved data
-        
+
         Parameters
         ----------
         field : str
@@ -1255,7 +1330,7 @@ class Analysis:
             The DPI of the plot
         cmap : str, default='GnBu'
             The colormap to use, if plotting multiple collections
-        
+
         Returns
         -------
         fig : matplotlib.figure.Figure
@@ -1322,11 +1397,11 @@ class Analysis:
             return fig, ax
         else:
             return ax
-    
+
     def plot_avg_time_resolved(self, field: str, ax = None, dpi=150):
         '''
         Plot the average time resolved data
-        
+
         Parameters
         ----------
         field : str
@@ -1335,7 +1410,7 @@ class Analysis:
             The axes object to plot on. If None, creates a new figure and axes
         dpi : int
             The DPI of the plot
-        
+
         Returns
         -------
         fig : matplotlib.figure.Figure
@@ -1386,7 +1461,11 @@ class Analysis:
 
     def animate_time_resolved(self,
                               field: str,
-                              collection: int,
+                              collection: int = None,
+                              title: str = None,
+                              xlabel: str = None,
+                              ylabel: str = None,
+                              color: str = None,
                               dpi=150,
                               interval=100,
                               repeat=False,
@@ -1394,13 +1473,22 @@ class Analysis:
                               ):
         '''
         Animate the time resolved data
-        
+
         Parameters
         ----------
         field : str
             The field to animate
-        collection : int
-            The index of the collection to animate
+        collection : int, default=None
+            The index of the collection to animate. If None, animates an average
+            of all collections
+        title : str, default=None
+            The title of the plot
+        xlabel : str, default=None
+            The x-axis label
+        ylabel : str, default=None
+            The y-axis label
+        color : str, default=None
+            The color of the line. If None, uses black
         dpi : int
             The DPI of the plot
         interval : int, default=100
@@ -1409,7 +1497,7 @@ class Analysis:
             Whether to repeat the animation
         repeat_delay : int, default=1000
             The delay between loops in milliseconds
-        
+
         Returns
         -------
         anim : matplotlib.animation.FuncAnimation
@@ -1425,49 +1513,74 @@ class Analysis:
 
         fig, ax = plt.subplots(1,1, dpi=dpi)
 
+        # Get plot data
+        if collection is None:
+            if not hasattr(self, 'avg_over_coll_tr_data'):
+                self.avg_time_resolved_over_collections(field)
+            data = self.avg_over_coll_tr_data[field]
+        else:
+            data = self.tr_data[field][collection]
+
+        # Set up plot customizations
+        if title is None:
+            title = f'Time resolved {field}'
+        if ylabel is None:
+            ylabel = f'{field}'
+        set_xlabel_flag = False
+        if xlabel is None:
+            set_xlabel_flag = True
+        if color is None:
+            color = 'black'
+
         # Get x-axis data
-        if len(self.tr_data[field][collection][0]) == len(self.cells):
+        if len(data[0]) == len(self.cells):
             x = self.cells
-            xlabel = 'Position [m]'
-        elif len(self.tr_data[field][collection][0]) == len(self.nodes):
+            if set_xlabel_flag:
+                xlabel = 'Position [m]'
+        elif len(data[0]) == len(self.nodes):
             x = self.nodes
-            xlabel = 'Position [m]'
+            if set_xlabel_flag:
+                xlabel = 'Position [m]'
         elif field.startswith('EEdf'):
             x = self.edf_energy['EEdf']
-            xlabel = 'Energy [eV]'
+            if set_xlabel_flag:
+                xlabel = 'Energy [eV]'
         elif field.startswith('IEdf'):
             x = self.edf_energy['IEdf']
-            xlabel = 'Energy [eV]'
+            if set_xlabel_flag:
+                xlabel = 'Energy [eV]'
         else:
             raise ValueError('Could not get x-axis data')
 
         # Plot initial frame
-        line, = ax.plot(x, self.tr_data[field][collection][0], color='black')
+        line, = ax.plot(x, data[0], color=color)
 
         ax.set_xlabel(xlabel)
-        ax.set_ylabel(f'{field}')
-        ax.set_title(f'Time resolved {field}')
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
         ax.margins(x=0)
 
+        # Get the max and min
+        min = np.min(data)
+        max = np.max(data)
+
         def update(frame):
-            line.set_ydata(self.tr_data[field][collection][frame])
-            min = np.min(self.tr_data[field][collection][frame])
-            max = np.max(self.tr_data[field][collection][frame])
-            
+            line.set_ydata(data[frame])
+
             if max == min:
                 ax.set_ylim(max - 0.01*max, max + 0.01*max)
             else:
                 ax.set_ylim(min, max)
             return line,
 
-        frames = len(self.tr_data[field][collection])
+        frames = len(data)
         if repeat:
             frames *= 2
 
         anim = FuncAnimation(
             fig,
             update,
-            frames = len(self.tr_data[field][collection]),
+            frames = len(data),
             interval=interval,
             repeat=repeat,
             repeat_delay=repeat_delay
@@ -1537,7 +1650,7 @@ class Analysis:
                                 ):
         '''
         Wrapper function to calculate and display the integrated power
-        
+
         Parameters
         ----------
         field : str
@@ -1606,7 +1719,7 @@ class Analysis:
         ----------
         field : str
             The field to load
-        
+
         Returns
         -------
         ta_data : dict[dict[stack of np.ndArray]]
@@ -1628,12 +1741,12 @@ class Analysis:
     def avg_time_averaged(self, field: str = None):
         '''
         Average the time averaged data over all collections
-        
+
         Parameters
         ----------
         field : str
             The field to average. Must be one of self.ta_fields
-        
+
         Returns
         -------
         avg_ta_data : dict[np.ndarray]
@@ -1665,7 +1778,7 @@ class Analysis:
                            cmap = 'coolwarm'):
         '''
         Plot the time averaged data
-        
+
         Parameters
         ----------
         field : str
@@ -1675,7 +1788,7 @@ class Analysis:
         ax : matplotlib.axes.Axes, default=None
             The axes object to plot on. If None, creates a new figure and axes
         dpi : int
-        
+
         Returns
         -------
         fig : matplotlib.figure.Figure
@@ -1690,12 +1803,12 @@ class Analysis:
         # Check if the field has been loaded. If it unloaded, the list will be empty
         if any([len(self.ta_data[field][key]) == 0 for key in self.ta_data[field]]):
             self.load_time_averaged(field)
-        
+
         return_fig = False
         if ax is None:
             fig, ax = plt.subplots(1,1, dpi=dpi)
             return_fig = True
-        
+
         # Make avg line
         if not hasattr(self, 'avg_ta_data'):
             self.avg_time_averaged(field)
@@ -1742,7 +1855,7 @@ class Analysis:
     def _color_chooser(self, idx, num_colors, cmap='GnBu'):
         '''
         Choose a color from a list of colors
-        
+
         Parameters
         ----------
         idx : int
@@ -1751,7 +1864,7 @@ class Analysis:
             The number of colors in the list
         cmap : str, default='GnBu'
             The colormap to use
-        
+
         Returns
         -------
         str
