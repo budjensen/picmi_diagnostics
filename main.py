@@ -108,7 +108,7 @@ class ICPHeatSource:
         # Save pertinant information to file './diags/ICP_info.dat'
         if comm.rank != 0:
             return
-        
+
         # Make a diagnostics directory
         if not os.path.exists(self.diag_outfolder):
             os.makedirs(self.diag_outfolder)
@@ -154,7 +154,7 @@ class ICPHeatSource:
     def _import_general_timing_info(self, simulation_obj: CapacitiveDischargeExample):
         '''
         Import diagnostic steps for diagnostics.
-        
+
         Parameters
         ----------
         simulation_obj: CapacitiveDischargeExample
@@ -307,7 +307,7 @@ class ICPHeatSource:
             J_perp += self.charge_by_name[species] * self.calculate_Flux_perp_cells(species)
 
         return J_perp
-    
+
     def calculate_Flux_perp_cells(self, species) -> np.ndarray[float]:
         '''
         Calculate the perpendicular flux density for a species.
@@ -392,7 +392,7 @@ class Diagnostics1D:
             Folder to save diagnostics
         restart_checkpoint: bool, optional
             Whether simulation is restarting from a checkpoint
-        
+
         Notes
         -----
         - Interval times (if turned on in switches) need to be formatted like:
@@ -400,7 +400,7 @@ class Diagnostics1D:
         interval_times = [time1, time2, ...]
 
         - Input switches need to be formatted like (default switches are shown):
-        
+
         switches = {
             'ieadfs': {
                 'z_lo': True,
@@ -621,12 +621,13 @@ class Diagnostics1D:
             'electrons': -constants.q_e,
             ion_spec_names[0]: constants.q_e
         }
-        
+
         self._make_particle_dictionaries()
 
         # Set up diagnostics
         self._import_general_timing_info(simulation_obj)
         self._get_time_resolved_steps(simulation_obj)
+        self.in_coll_steps = []
         if any(interval_dict.values()):
             self._get_interval_collection_steps()
         if self.Riz_switch:
@@ -791,7 +792,7 @@ class Diagnostics1D:
         self.E = np.zeros(self.nz)
         self.phi = np.zeros(self.nz + 1)
         self.E_last_step = np.zeros(self.nz)
-    
+
     def _calculate_N_collections(self):
         '''
         Calculate the number of collections for time averaged and resolved
@@ -802,16 +803,16 @@ class Diagnostics1D:
         self.ta_coll = np.zeros(self.num_outputs, dtype=int)
 
         # Calculate the number of collections for each diagnostic type
-        # (for interval collections this is the number of collection 
+        # (for interval collections this is the number of collection
         #  intervals in each diagnostic output)
         for ii in range(self.num_outputs):
             total_steps = self.diag_stop[ii] - self.diag_start[ii]
             self.tr_coll[ii] = int((total_steps // self.diag_time_resolving_steps) + 1)
             self.ta_coll[ii] = int(total_steps + 1)
-        
+
         if comm.rank != 0:
             return
-        
+
         # Save the number of collections to file
         self.check_file(f'{self.diag_folder}/N_collections.dat')
         with open(f'{self.diag_folder}/N_collections.dat', 'w') as f:
@@ -824,7 +825,7 @@ class Diagnostics1D:
     def _setup_Riz_diag(self, simulation_obj: CapacitiveDischargeExample):
         '''
         Set up diagnostics for ionization rate
-        
+
         Parameters
         ----------
         simulation_obj: CapacitiveDischargeExample
@@ -899,7 +900,7 @@ class Diagnostics1D:
     def _import_general_timing_info(self, simulation_obj: CapacitiveDischargeExample):
         '''
         Import diagnostic steps for diagnostics.
-        
+
         Parameters
         ----------
         simulation_obj: CapacitiveDischargeExample
@@ -922,7 +923,7 @@ class Diagnostics1D:
     def _get_interval_collection_steps(self):
         '''
         Set up an array containing steps to calculate interval diagnostics.
-        
+
         Sets up a list with length equal to the number of diagnostic
         outputs. Each element of the list is a stack of numpy arrays
         containing the steps at which interval diagnostics are to be
@@ -934,7 +935,7 @@ class Diagnostics1D:
         -------
         Suppose we have 3 diagnostic outputs and can fit 4 intervals
         within each diagnostic window. Then the list will obey:
-        
+
         ```
         len(self.in_coll_steps) = 3
         ```
@@ -945,8 +946,6 @@ class Diagnostics1D:
         len(self.in_coll_steps[ii]) = 4
         ```
         '''
-        self.in_coll_steps = []
-
         for ii in range(self.num_outputs):
             # Start time of current diag output window
             output_start_t = self.diag_start[ii] * self.dt
@@ -1032,7 +1031,7 @@ class Diagnostics1D:
 
         # Get time between time resolved diagnostic collections
         self.tr_interval = self.diag_time / self.num_in_tr
-        
+
         # Convert times to steps
         self.diag_time_resolving_steps = int(self.tr_interval / self.dt)
 
@@ -1057,7 +1056,7 @@ class Diagnostics1D:
             f.write(f'Diagnostics start time [s]={self.diag_start_time}\n')
             f.write(f'Diagnostic time [s]={self.diag_time}\n')
             f.write(f'Evolve time [s]={self.evolve_time}\n\n')
-            
+
             f.write(f'Number of diagnostic outputs={self.num_outputs}\n\n')
 
             f.write(f'Time [s] between time resolved collections={self.tr_interval}\n')
@@ -1145,7 +1144,7 @@ class Diagnostics1D:
         self.diag_idx_by_name = {}
         for i in range(len(self.species_names)):
             self.diag_idx_by_name[self.species_names[i]]=i
-    
+
     ###########################################################################
     # Diagnostic Functions                                                    #
     ###########################################################################
@@ -1253,7 +1252,7 @@ class Diagnostics1D:
             uz = np.array([])
             w = np.array([])
             z = np.array([])
-        
+
         # Get temperature (E = 0.5mv^2 = 1.5T)
         v2 = ux**2 + uy**2 + uz**2
 
@@ -1394,7 +1393,7 @@ class Diagnostics1D:
             w = np.array([])
             z = np.array([])
 
-        # Get the perpendicular field 
+        # Get the perpendicular field
         Ex_nodes = fields.ExFPWrapper()
 
         # Field is on the nodes, so average it out to the cell centers
@@ -1574,7 +1573,7 @@ class Diagnostics1D:
     def calculate_eedf(self):
         '''
         Gets a histogram of the electron energy distribution function.
-    
+
         Returns
         -------
         hist: np.ndarray
@@ -1625,7 +1624,7 @@ class Diagnostics1D:
             hist_by_mask = np.stack(hist_by_mask)
 
             return hist_by_mask
-    
+
         # Get the ieadf on the processor
         hist = get_eedf()
 
@@ -1641,7 +1640,7 @@ class Diagnostics1D:
     def calculate_iedf(self, species: str):
         '''
         Gets a histogram of the ion energy distribution function.
-        
+
         Parameters
         ----------
         species: str
@@ -1698,7 +1697,7 @@ class Diagnostics1D:
             hist_by_mask = np.stack(hist_by_mask)
 
             return hist_by_mask
-    
+
         # Get the ieadf on the processor
         hist = get_iedf(species)
 
@@ -1715,7 +1714,7 @@ class Diagnostics1D:
         '''
         Gets a histogram of the ion energy angular distribution function at
         the specified boundary for the energy bins self.iedf_bin_centers.
-        
+
         Parameters
         ----------
         species: str
@@ -1723,7 +1722,7 @@ class Diagnostics1D:
         boundary: str
             The boundary at which to calculate the ion energy distribution
             function, one of 'z_lo', 'z_hi'
-        
+
         Returns
         -------
         hist: np.ndarray
@@ -1764,7 +1763,7 @@ class Diagnostics1D:
             hist = np.copy(hist, order='C')
 
             return hist
-    
+
         # Get the ieadf on the processor
         hist = get_ieadf(species, boundary)
 
@@ -1772,7 +1771,7 @@ class Diagnostics1D:
         hist_all = np.zeros_like(hist)
         comm.Allreduce(hist, hist_all, op=mpi.SUM)
         self.ieadf_by_species[species][boundary] = hist_all
-    
+
     def clear_ieadf_buffers(self):
         '''
         Clears the buffers for the ion energy angular distribution function.
@@ -1802,7 +1801,7 @@ class Diagnostics1D:
                 except ValueError:
                     bd_t[boundary] = np.array([])
                     bd_z[boundary] = np.array([])
-                    bd_w[boundary] = np.array([])        
+                    bd_w[boundary] = np.array([])
 
             # Make the current time the end of the time window
             t_begin = self.Riz_start_time + self.diag_cycle_time * self.Riz_diag_counter
@@ -1877,7 +1876,7 @@ class Diagnostics1D:
         '''
         Master function to perform diagnostics at each time step. Should be
         installed at least one step before the first diagnostic step.
-        '''        
+        '''
         def do_time_resolved_diagnostics(tr_idx: int):
             '''
             Performs time resolved diagnostics
@@ -2258,7 +2257,7 @@ class Diagnostics1D:
             if active['IPi']:
                 IP_factor = self.charge_by_name[species[1]] / self.dz
                 self.tr_IPi *= IP_factor
-            
+
             # Grab temporary dictionary for power diagnostics
             active = self.tr_power_dict
             if active['Pin_vst']:
@@ -2285,7 +2284,7 @@ class Diagnostics1D:
                 self.tr_IPi_vst = np.zeros(len(self.tr_times))
                 for time_idx in range(len(self.tr_times)):
                     self.tr_IPi_vst[time_idx] = np.trapz(self.tr_IPi[time_idx], self.nodes)
-            
+
             # Grab temporary dictionary for time averaged diagnostics
             active = self.master_diagnostic_dict['time_averaged']
             collections = self.ta_coll[self.curr_diag_output]
@@ -2302,7 +2301,7 @@ class Diagnostics1D:
                 v2_factor = self.mass_by_name[species[1]] / 2.0 / constants.q_e
                 self.ta_W_i *= v2_factor / collections
             if active['E_z']:
-                self.ta_E_z /= collections 
+                self.ta_E_z /= collections
             if active['phi']:
                 self.ta_phi /= collections
             if active['Jze']:
@@ -2330,7 +2329,7 @@ class Diagnostics1D:
                 self.ta_EEdf /= collections
             if active['IEdf']:
                 self.ta_IEdf /= collections
-            
+
             # Grab temporary dictionary for interval diagnostics
             active = self.master_diagnostic_dict['interval']
             if active['N_e']:
@@ -2443,7 +2442,7 @@ class Diagnostics1D:
         # Make sure the directory exists
         if not os.path.exists(self.diag_folder):
             os.makedirs(self.diag_folder)
-        
+
         # Create directories for each diagnostic type
         tr_folder = os.path.join(self.diag_folder, f'time_resolved_{step:04d}')
         ta_folder = os.path.join(self.diag_folder, f'time_averaged_{step:04d}')
