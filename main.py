@@ -17,6 +17,261 @@ num_proc = comm.Get_size()
 
 constants = picmi.constants
 
+class SEE:
+    def __init__(self,
+                 simulation_obj: CapacitiveDischargeExample,
+                 sim_ext: picmi.Simulation.extension,
+                 SEE_probability: float,
+                 SEE_energy: float,
+                 SEE_spec_names: list = None
+                 ):
+        '''
+        Class to calculate secondary electron emission (SEE) in a plasma.
+
+        If SEE_probability > 1, make sure to install the callback function
+        SEE.do_gamma_gt_1_SEE() in the WarpX picmi script.
+
+        Parameters
+        ----------
+        simulation_obj: CapacitiveDischargeExample
+            Object of the main simulation class
+        sim_ext: picmi.Simulation.extension
+            Simulation extension object
+        SEE_probability: float
+            SEE probability
+        SEE_energy: float
+            Energy of secondary electrons, in eV
+        SEE_spec_names: list, optional
+            List of species names that can yield SEE
+        '''
+        # Import simulation extension object
+        self.sim_ext = sim_ext
+
+        # Import simulation parameters
+        self.zmax = simulation_obj.gap
+        self.dt   = simulation_obj.dt
+
+        # Save the SEE probability and species
+        self.SEE_probability = SEE_probability
+        self.SEE_spec_names  = SEE_spec_names
+        self.SEE_velocity    = np.sqrt(2 * SEE_energy * constants.q_e / constants.m_e)
+
+        if self.SEE_probability < 0:
+            raise ValueError('SEE_probability ERROR: SEE probability must be greater than or equal to 0.')
+
+        # Automatically rescale the SEE probability if > 1
+        self.min_SEE_to_inject = 0
+        if self.SEE_probability > 1:
+            self.min_SEE_to_inject = int(self.SEE_probability)
+            self.SEE_probability -= self.min_SEE_to_inject
+
+    def do_SEE(self):
+        '''
+        Function to calculate secondary electron emission.
+        '''
+        # Get wrappers
+        buffer = particle_containers.ParticleBoundaryBufferWrapper()
+        elec_pc = particle_containers.ParticleContainerWrapper("electrons")
+        lev = 0  # level 0 (no mesh refinement here)
+        step = self.sim_ext.warpx.getistep(lev)
+        for boundary in ['z_lo', 'z_hi']:
+
+            # Initialize z
+            if boundary == 'z_lo':
+                z = 0.0
+                root = 0
+            else:
+                z = self.zmax
+                root = num_proc - 1
+
+            for species in self.SEE_spec_names:
+                try:
+                    w = np.concatenate(buffer.get_particle_scraped_this_step(species, boundary, "w", lev))
+                    delta_t = np.concatenate(buffer.get_particle_scraped_this_step(species, boundary, "deltaTimeScraped", lev))
+                except ValueError:
+                    w = np.array([])
+                    delta_t = np.array([])
+
+                if len(w) == 0:
+                    if comm.rank == root:
+                        self.send_SEE_number(0)
+                        continue
+                    else:
+                        num_SEE_to_add = self.receive_SEE_number(root)
+
+                        if num_SEE_to_add == 0:
+                            continue
+
+                        elec_pc.add_particles()
+                else:
+                    # Determine if SEE occurs for each particle
+                    SEE_occurs = np.random.uniform(size=len(w)) <= self.SEE_probability
+                    n_SEE = np.sum(SEE_occurs)
+
+                    self.send_SEE_number(n_SEE)
+
+                    we = w[SEE_occurs] # account for variable weights
+                    delta_te = delta_t[SEE_occurs]
+
+                    # Get the velocity angles isotropically distribued on a unit hemisphere
+                    phi = 2 * np.pi * np.random.uniform(size=n_SEE)
+                    costheta = np.random.uniform(size=n_SEE)
+                    sintheta = np.sqrt(1 - costheta**2)
+                    vsintheta = self.SEE_velocity * sintheta
+                    ux = vsintheta * np.cos(phi)
+                    uy = vsintheta * np.sin(phi)
+                    if boundary == 'z_lo':
+                        uz = self.SEE_velocity * costheta
+                    else:
+                        uz = -self.SEE_velocity * costheta
+
+                    elec_pc.add_particles(
+                        z=z + (self.dt - delta_te) * uz,
+                        ux=ux,
+                        uy=uy,
+                        uz=uz,
+                        w=we,
+                        unique_particles=True,
+                    )
+                    # Note: Doing unique_particles=True will not add the same particle to each process
+                    # if we only call elec_pc.add_particles() one on process. Since we already know which
+                    # rank the particles should be added to (since it should be either end of the simulation)
+                    # we can cheese the system and call elec_pc.add_particles() on all processes (so the simulation
+                    # doesn't hang) and then only add the particles on the correct rank. This is a bit of a hack but
+                    # works and is probably even faster than adding them since we'd need to send the info out and back
+
+    def do_gamma_gt_1_SEE(self):
+        '''
+        Function to calculate secondary electron emission if SEE_probability > 1.
+        '''
+        # Get wrappers
+        buffer = particle_containers.ParticleBoundaryBufferWrapper()
+        elec_pc = particle_containers.ParticleContainerWrapper("electrons")
+        lev = 0  # level 0 (no mesh refinement here)
+        step = self.sim_ext.warpx.getistep(lev)
+        for boundary in ['z_lo', 'z_hi']:
+
+            # Initialize z
+            if boundary == 'z_lo':
+                z = 0.0
+                root = 0
+            else:
+                z = self.zmax
+                root = num_proc - 1
+
+            for species in self.SEE_spec_names:
+                try:
+                    w = np.concatenate(buffer.get_particle_scraped_this_step(species, boundary, "w", lev))
+                    delta_t = np.concatenate(buffer.get_particle_scraped_this_step(species, boundary, "deltaTimeScraped", lev))
+                except ValueError:
+                    w = np.array([])
+                    delta_t = np.array([])
+
+                if len(w) == 0:
+                    if comm.rank == root:
+                        self.send_SEE_number(0)
+                        continue
+                    else:
+                        num_SEE_to_add = self.receive_SEE_number(root)
+
+                        if num_SEE_to_add == 0:
+                            continue
+
+                        elec_pc.add_particles()
+                else:
+                    # Calculate the number of guaranteed secondary electrons to add
+                    n_SEE = self.min_SEE_to_inject * len(w)
+
+                    # Populate with the correct values of w and delta_t
+                    w_prefix = np.repeat(w, self.min_SEE_to_inject)
+                    delta_t_prefix = np.repeat(delta_t, self.min_SEE_to_inject)
+
+                    # Determine if SEE occurs for each particle
+                    SEE_occurs = np.random.uniform(size=len(w)) <= self.SEE_probability
+                    n_SEE += np.sum(SEE_occurs) # uncomment for SEE_probability > 1
+
+                    self.send_SEE_number(n_SEE)
+
+                    we = w[SEE_occurs] # account for variable weights
+                    delta_te = delta_t[SEE_occurs]
+
+                    # Prepend the guaranteed secondary electrons
+                    we = np.concatenate((w_prefix, we))
+                    delta_te = np.concatenate((delta_t_prefix, delta_te))
+
+                    # Get the velocity angles isotropically distribued on a unit hemisphere
+                    phi = 2 * np.pi * np.random.uniform(size=n_SEE)
+                    costheta = np.random.uniform(size=n_SEE)
+                    sintheta = np.sqrt(1 - costheta**2)
+                    vsintheta = self.SEE_velocity * sintheta
+                    ux = vsintheta * np.cos(phi)
+                    uy = vsintheta * np.sin(phi)
+                    if boundary == 'z_lo':
+                        uz = self.SEE_velocity * costheta
+                    else:
+                        uz = -self.SEE_velocity * costheta
+
+                    elec_pc.add_particles(
+                        z=z + (self.dt - delta_te) * uz,
+                        ux=ux,
+                        uy=uy,
+                        uz=uz,
+                        w=we,
+                        unique_particles=True,
+                    )
+                    # Note: Doing unique_particles=True will not add the same particle to each process
+                    # if we only call elec_pc.add_particles() one on process. Since we already know which
+                    # rank the particles should be added to (since it should be either end of the simulation)
+                    # we can cheese the system and call elec_pc.add_particles() on all processes (so the simulation
+                    # doesn't hang) and then only add the particles on the correct rank. This is a bit of a hack but
+                    # works and is probably even faster than adding them since we'd need to send the info out and back
+
+    def send_SEE_number(self,
+                        num_SEE_to_add: int
+                        ):
+        '''
+        Send the number of secondary electrons to add to all processes.
+
+        Parameters
+        ----------
+        num_SEE_to_add: str
+            number of secondary electrons to add
+        '''
+        # Send the number of secondary electrons to add
+        comm.Bcast(np.array([num_SEE_to_add], dtype='i'), root=comm.rank)
+
+        step = self.sim_ext.warpx.getistep(0)
+        with open('SEE_progress.txt', 'a') as f:
+            f.write(f'{step}-{comm.rank}: Wrote {num_SEE_to_add}\n')
+
+    def receive_SEE_number(self,
+                           root
+                           ) -> int:
+        '''
+        Receive the number of secondary electrons to add from the root process.
+
+        Parameters
+        ----------
+        root: int
+            Root process to receive from
+        '''
+        # Get the number of secondary electrons to add
+        num_SEE_to_add = np.array([0], dtype='i')
+        comm.Bcast(num_SEE_to_add, root=root)
+
+        step = self.sim_ext.warpx.getistep(0)
+        with open('SEE_progress.txt', 'a') as f:
+            f.write(f'{step}-{comm.rank}: Read {num_SEE_to_add[0]}\n')
+
+        return num_SEE_to_add[0]
+
+    def concat(list_of_arrays):
+        if len(list_of_arrays) == 0:
+            # Return a 1d array of size 0
+            return np.empty(0)
+        else:
+            return np.concatenate(list_of_arrays)
+
 class ICPHeatSource:
     def __init__(self,
                  simulation_obj: CapacitiveDischargeExample,

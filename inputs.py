@@ -7,7 +7,7 @@ import sys, os, time, copy
 from pywarpx import callbacks, fields, libwarpx, particle_containers, picmi
 from mpi4py import MPI as mpi
 
-from picmi_diagnostics.main import Diagnostics1D, ICPHeatSource
+from picmi_diagnostics.main import Diagnostics1D, ICPHeatSource, SEE
 
 comm = mpi.COMM_WORLD
 num_proc = comm.Get_size()
@@ -28,12 +28,6 @@ class CapacitiveDischargeExample(object):
     freq            = 13.56e6                           # Hz
     voltage         = 0.0                               # V
     voltage_rf      = 50.0                              # V
-
-    flag_ICP_heat   = False                             # Switch to add self-consistent ICP heating
-    ICP_Jmag        = 100.0                             # [A/m^2]
-    ICP_freq        = 10e6                              # [Hz]
-    ICP_zmin        = 0                                 # [m]
-    ICP_zmax        = 25*milli                          # [m]
 
     gas_density     = 30.0*ng_1Torr*milli               # [mTorr]
     gas_temp        = 300.0                             # [K]
@@ -74,6 +68,16 @@ class CapacitiveDischargeExample(object):
 
     restart_checkpoint = False                          # Restart from checkpoint
     path_to_checkpoint = 'checkpoints/chkpt00000000'    # Path to desired checkpoint directory ending with the step number
+
+    flag_ICP_heat   = False                             # Switch to add self-consistent ICP heating
+    ICP_Jmag        = 100.0                             # [A/m^2]
+    ICP_freq        = 10e6                              # [Hz]
+    ICP_zmin        = 0                                 # [m]
+    ICP_zmax        = 25*milli                          # [m]
+
+    flag_SEE        = False                             # Switch to add secondary electron emission
+    SEE_probability = 0.3                               # Secondary electron probability
+    SEE_energy      = 1.0                               # Energy of emitted secondaries [eV]
 
     # Total simulation time in seconds
     total_time = convergence_time + num_diag_steps * (diag_time + evolve_time)
@@ -209,7 +213,7 @@ class CapacitiveDischargeExample(object):
         for i in range(self.num_diag_steps):
             diag_start_times.append(diag_start + i * diag_n_evolve)
         diag_start_times = np.array(diag_start_times)
-        
+
         # Convert times to steps
         self.diag_start = np.round(diag_start_times / self.dt).astype(int)
         self.diag_period_steps = int(self.diag_time / self.dt)
@@ -299,10 +303,13 @@ class CapacitiveDischargeExample(object):
 
         self.electrons = picmi.Species(
             particle_type='electron', name='electrons',
-            initial_distribution=elec_distribution
+            initial_distribution=elec_distribution,
+            warpx_save_particles_at_zhi = True,
+            warpx_save_particles_at_zlo = True,
         )
+        ion_name = 'ar_ions'
         self.ions = picmi.Species(
-            particle_type='Ar', name='ar_ions',
+            particle_type='Ar', name=ion_name,
             charge='q_e', mass=self.m_ion,
             initial_distribution=ion_distribution,
             warpx_save_particles_at_zhi = True,
@@ -401,7 +408,7 @@ class CapacitiveDischargeExample(object):
             name = 'periodic',
             grid = self.grid,
             period = f'{self.start_step}::{(self.max_steps - self.start_step) // 40}',
-            data_list = ['phi','rho_ar_ions'],
+            data_list = ['phi',f'rho_{ion_name}'],
             write_dir = './diags',
             warpx_format = 'openpmd',
             warpx_file_min_digits = 8
@@ -424,9 +431,22 @@ class CapacitiveDischargeExample(object):
         # Add timings for custom diagnostics
         self._setup_diagnostic_steps()
 
-        # Initialize the ICP heating source class, if necessary
+        # Initialize the special classes, if necessary
         if self.flag_ICP_heat:
-            self.ICP_heating_source = ICPHeatSource(self, self.sim.extension, ion_spec_names=['ar_ions'])
+            self.ICP_heating_source = ICPHeatSource(
+                self,
+                self.sim.extension,
+                ion_spec_names=[ion_name]
+            )
+
+        if self.flag_SEE:
+            self.SEE_routine = SEE(
+                self,
+                self.sim.extension,
+                SEE_probability=self.SEE_probability,
+                SEE_energy=self.SEE_energy,
+                SEE_spec_names=['electrons', ion_name],
+            )
 
         # Add custom diagnostics
         self.picmi_diagnostics = Diagnostics1D(
@@ -434,7 +454,7 @@ class CapacitiveDischargeExample(object):
             self.sim.extension,
             switches=self.diag_switches,
             interval_times=self.interval_diag_times,
-            ion_spec_names=['ar_ions'],
+            ion_spec_names=[ion_name],
             restart_checkpoint=self.restart_checkpoint
         )
 
@@ -446,6 +466,10 @@ class CapacitiveDischargeExample(object):
         # Add the ICP heating source, if necessary
         if self.flag_ICP_heat:
             callbacks.installafterEsolve(self.ICP_heating_source.calculate_E_ICP)
+
+        # Add SEE, if necessary
+        if self.flag_SEE:
+            callbacks.installafterstep(self.SEE_routine.do_SEE)
 
         elapsed_steps = 0
         if self.restart_checkpoint:
@@ -464,10 +488,13 @@ class CapacitiveDischargeExample(object):
 
         # Run the simulation until the end
         self.sim.step(self.max_steps - elapsed_steps + self.bonus_steps)
-        
+
+        # Uninstall callbacks
         callbacks.uninstallcallback('beforestep', self.picmi_diagnostics.do_diagnostics)
         if self.flag_ICP_heat:
             callbacks.uninstallcallback('afterEsolve', self.ICP_heating_source.calculate_E_ICP)
+        if self.flag_SEE:
+            callbacks.uninstallcallback('afterstep', self.SEE_routine.do_SEE)
 
 ##########################
 ### Execute Simulation ###
