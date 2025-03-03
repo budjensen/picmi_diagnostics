@@ -882,7 +882,7 @@ class Diagnostics1D:
         # Set up diagnostics
         self._import_general_timing_info(simulation_obj)
         self._get_time_resolved_steps(simulation_obj)
-        self.in_coll_steps = []
+        self.in_coll_steps = [[] for _ in range(self.num_outputs)]
         if any(interval_dict.values()):
             self._get_interval_collection_steps()
         if self.Riz_switch:
@@ -1067,6 +1067,10 @@ class Diagnostics1D:
 
         if comm.rank != 0:
             return
+
+        # Check if the diagnostic folder exists
+        if not os.path.exists(self.diag_folder):
+            os.makedirs(self.diag_folder)
 
         # Save the number of collections to file
         self.check_file(f'{self.diag_folder}/N_collections.dat')
