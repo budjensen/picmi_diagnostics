@@ -240,10 +240,6 @@ class SEE:
         # Send the number of secondary electrons to add
         comm.Bcast(np.array([num_SEE_to_add], dtype='i'), root=comm.rank)
 
-        step = self.sim_ext.warpx.getistep(0)
-        with open('SEE_progress.txt', 'a') as f:
-            f.write(f'{step}-{comm.rank}: Wrote {num_SEE_to_add}\n')
-
     def receive_SEE_number(self,
                            root
                            ) -> int:
@@ -258,10 +254,6 @@ class SEE:
         # Get the number of secondary electrons to add
         num_SEE_to_add = np.array([0], dtype='i')
         comm.Bcast(num_SEE_to_add, root=root)
-
-        step = self.sim_ext.warpx.getistep(0)
-        with open('SEE_progress.txt', 'a') as f:
-            f.write(f'{step}-{comm.rank}: Read {num_SEE_to_add[0]}\n')
 
         return num_SEE_to_add[0]
 
