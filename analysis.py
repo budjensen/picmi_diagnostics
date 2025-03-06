@@ -1466,7 +1466,12 @@ class Analysis:
                               xlabel: str = None,
                               ylabel: str = None,
                               color: str = None,
+                              xlim: list[tuple] = None,
+                              ylim: list[tuple] = None,
+                              fontsize: int = 12,
+                              ticklabelsize: int = 10,
                               dpi=150,
+                              frames = None,
                               interval=100,
                               repeat=False,
                               repeat_delay=500
@@ -1480,7 +1485,8 @@ class Analysis:
             The field to animate
         collection : int, default=None
             The index of the collection to animate. If None, animates an average
-            of all collections
+            of all collections. If "full set", animates the full set of collection
+            data, concatenated end to end.
         title : str, default=None
             The title of the plot
         xlabel : str, default=None
@@ -1489,8 +1495,18 @@ class Analysis:
             The y-axis label
         color : str, default=None
             The color of the line. If None, uses black
+        xlim : list[tuple], default=None
+            The x-axis limits
+        ylim : list[tuple], default=None
+            The y-axis limits
+        fontsize : int, default=12
+            The fontsize of the labels
+        ticklabelsize : int, default=10
+            The fontsize of the tick labels
         dpi : int
             The DPI of the plot
+        frames : int, default=None
+            The number of frames to animate. If None, animates all frames
         interval : int, default=100
             The interval between frames in milliseconds
         repeat : bool, default=False
@@ -1511,6 +1527,9 @@ class Analysis:
         if any([len(self.tr_data[field][key]) == 0 for key in self.tr_data[field]]):
             self.load_time_resolved(field)
 
+        # Set default matplotlib style
+        plt.rcParams.update({'font.size': fontsize, 'xtick.labelsize': ticklabelsize, 'ytick.labelsize': ticklabelsize})
+
         fig, ax = plt.subplots(1,1, dpi=dpi)
 
         # Get plot data
@@ -1518,6 +1537,9 @@ class Analysis:
             if not hasattr(self, 'avg_over_coll_tr_data'):
                 self.avg_time_resolved_over_collections(field)
             data = self.avg_over_coll_tr_data[field]
+        elif collection == "full set":
+            # Get the full set of collection data, concatenated end to end
+            data = np.concatenate([self.tr_data[field][coll] for coll in self.tr_data[field]], axis=0)
         else:
             data = self.tr_data[field][collection]
 
@@ -1560,31 +1582,434 @@ class Analysis:
         ax.set_title(title)
         ax.margins(x=0)
 
-        # Get the max and min
-        min = np.min(data)
-        max = np.max(data)
-
         def update(frame):
             line.set_ydata(data[frame])
 
-            if max == min:
-                ax.set_ylim(max - 0.01*max, max + 0.01*max)
-            else:
+            if ylim is None:
+                # Get the max and min
+                min = np.min(data)
+                max = np.max(data)
+
                 ax.set_ylim(min, max)
+            else:
+                ax.set_ylim(ylim)
+
+            if xlim is not None:
+                ax.set_xlim(xlim)
+
             return line,
 
-        frames = len(data)
+        if frames is None:
+            frames = len(data)
         if repeat:
             frames *= 2
 
         anim = FuncAnimation(
             fig,
             update,
-            frames = len(data),
+            frames = frames,
             interval=interval,
             repeat=repeat,
             repeat_delay=repeat_delay
             )
+        return anim
+
+    def animate_time_resolved_grid(self,
+                                   field: list[str],
+                                   collection: int = None,
+                                   title: list[str] = None,
+                                   xlabel: list[str] = None,
+                                   ylabel: list[str] = None,
+                                   color: list[str] = None,
+                                   xlim: list[tuple] = None,
+                                   ylim: list[tuple] = None,
+                                   fontsize: int = 12,
+                                   ticklabelsize: int = 10,
+                                   dpi=150,
+                                   frames: int = None,
+                                   interval=100,
+                                   repeat=False,
+                                   repeat_delay=500
+                                   ):
+        '''
+        Animate the time resolved data
+
+        Parameters
+        ----------
+        field : list[str]
+            The field(s) to animate
+        collection : int, default=None
+            The index of the collection to animate. If None, animates an average
+            of all collections
+        title : list[str], default=None
+            The title of the plot
+        xlabel : list[str], default=None
+            The x-axis label
+        ylabel : list[str], default=None
+            The y-axis label
+        color : list[str], default=None
+            The color of the line. If None, uses black
+        xlim : list[tuple], default=None
+            The x-axis limits
+        ylim : list[tuple], default=None
+            The y-axis limits
+        fontsize : int, default=12
+            The fontsize of the labels
+        ticklabelsize : int, default=10
+            The fontsize of the tick labels
+        dpi : int
+            The DPI of the plot
+        frames : int, default=None
+            The number of frames to animate. If None, animates all frames
+        interval : int, default=100
+            The interval between frames in milliseconds
+        repeat : bool, default=False
+            Whether to repeat the animation
+        repeat_delay : int, default=1000
+            The delay between loops in milliseconds
+
+        Returns
+        -------
+        anim : matplotlib.animation.FuncAnimation
+            The animation object
+        '''
+        if not self.tr_bool:
+            raise ValueError('Time resolved data not found')
+        for fld in field:
+            if fld not in self.tr_fields:
+                raise ValueError(f'Field must be one of: {", ".join(self.tr_fields)}')
+            # Check if the field has been loaded. If unloaded, the list will be empty
+            if any([len(self.tr_data[fld][key]) == 0 for key in self.tr_data[fld]]):
+                self.load_time_resolved(fld)
+
+        # Use the length of the field to determine the number of subplots
+        num_plots = len(field)
+
+        # Set default matplotlib style
+        plt.rcParams.update({'font.size': fontsize, 'xtick.labelsize': ticklabelsize, 'ytick.labelsize': ticklabelsize})
+
+        # If 2 field, make them next to each other. If more than 2, make a grid (2x2, 3x3, etc.)
+        if num_plots == 1:
+            fig, axs = plt.subplots(1,1, dpi=dpi)
+        elif num_plots == 2:
+            fig, axs = plt.subplots(1,2, dpi=dpi)
+        elif num_plots < 5:
+            fig, axs = plt.subplots(2, 2, dpi=dpi)
+        elif num_plots < 10:
+            fig, axs = plt.subplots(3, 3, dpi=dpi)
+        elif num_plots < 17:
+            fig, axs = plt.subplots(4, 4, dpi=dpi)
+        else:
+            raise ValueError('Too many fields to plot')
+
+        # Get plot data
+        if collection is None:
+            data = []
+            for fld in field:
+                if not hasattr(self, 'avg_over_coll_tr_data'):
+                    self.avg_time_resolved_over_collections(fld)
+                if fld not in self.avg_over_coll_tr_data:
+                    self.avg_time_resolved_over_collections(fld)
+                data.append(self.avg_over_coll_tr_data[fld])
+        else:
+            data = [self.tr_data[fld][collection] for fld in field]
+
+        # Set up plot customizations
+        if title is None:
+            title = [f'Time resolved {fld}' for fld in field]
+        if ylabel is None:
+            ylabel = [f'{fld}' for fld in field]
+        set_xlabel_flag = False
+        if xlabel is None:
+            xlabel = []
+            set_xlabel_flag = True
+        if color is None:
+            color = ['black'] * len(field)
+        if xlim is None:
+            xlim = [None] * len(field)
+        if ylim is None:
+            ylim = [None] * len(field)
+
+        # Get x-axis data for each field
+        x = []
+        for ii, fld in enumerate(field):
+            if len(data[ii][0]) == len(self.cells):
+                x.append(self.cells)
+                if set_xlabel_flag:
+                    xlabel.append('Position [m]')
+            elif len(data[ii][0]) == len(self.nodes):
+                x.append(self.nodes)
+                if set_xlabel_flag:
+                    xlabel.append('Position [m]')
+            elif fld.startswith('EEdf'):
+                x.append(self.edf_energy['EEdf'])
+                if set_xlabel_flag:
+                    xlabel.append('Energy [eV]')
+            elif fld.startswith('IEdf'):
+                x.append(self.edf_energy['IEdf'])
+                if set_xlabel_flag:
+                    xlabel.append('Energy [eV]')
+            else:
+                raise ValueError(f'Could not get x-axis data for {fld}')
+
+        # Plot initial frame
+        lines = []
+        for ii, ax in enumerate(axs.flat):
+            if ii >= len(field):
+                ax.axis('off')
+                continue
+
+            tmp_line, = ax.plot(x[ii], data[ii][0], color=color[ii])
+            lines.append(tmp_line)
+
+            ax.set_xlabel(xlabel[ii])
+            ax.set_ylabel(ylabel[ii])
+            ax.set_title(title[ii])
+
+            ax.margins(x=0)
+
+            if ylim[ii] is None:
+                # Get the max and min
+                min = np.min(data[ii])
+                max = np.max(data[ii])
+
+                ax.set_ylim(min, max)
+            else:
+                ax.set_ylim(ylim[ii])
+
+            if xlim[ii] is not None:
+                ax.set_xlim(xlim[ii])
+
+        def update(frame):
+            for ii, line in enumerate(lines):
+                line.set_ydata(data[ii][frame])
+            return lines,
+
+        # Get the number of frames
+        if frames is None:
+            frames = len(data[0])
+        if repeat:
+            frames *= 2
+
+        if frames > len(data[0]):
+            raise ValueError('Number of frames is greater than the number of frames in the data')
+
+        anim = FuncAnimation(
+            fig,
+            update,
+            frames = frames,
+            interval=interval,
+            repeat=repeat,
+            repeat_delay=repeat_delay
+            )
+
+        fig.tight_layout()
+
+        return anim
+
+
+    def animate_time_resolved_grid3(self,
+                                   field: list[str],
+                                   collection: int = None,
+                                   title: list[str] = None,
+                                   xlabel: list[str] = None,
+                                   ylabel: list[str] = None,
+                                   color: list[str] = None,
+                                   xlim: list[tuple] = None,
+                                   ylim: list[tuple] = None,
+                                   fontsize: int = 12,
+                                   ticklabelsize: int = 10,
+                                   dpi=150,
+                                   frames: int = None,
+                                   interval=100,
+                                   repeat=False,
+                                   repeat_delay=500
+                                   ):
+        '''
+        Animate the time resolved data
+
+        Parameters
+        ----------
+        field : list[str]
+            The field(s) to animate
+        collection : int, default=None
+            The index of the collection to animate. If None, animates an average
+            of all collections
+        title : list[str], default=None
+            The title of the plot
+        xlabel : list[str], default=None
+            The x-axis label
+        ylabel : list[str], default=None
+            The y-axis label
+        color : list[str], default=None
+            The color of the line. If None, uses black
+        xlim : list[tuple], default=None
+            The x-axis limits
+        ylim : list[tuple], default=None
+            The y-axis limits
+        fontsize : int, default=12
+            The fontsize of the labels
+        ticklabelsize : int, default=10
+            The fontsize of the tick labels
+        dpi : int
+            The DPI of the plot
+        frames : int, default=None
+            The number of frames to animate. If None, animates all frames
+        interval : int, default=100
+            The interval between frames in milliseconds
+        repeat : bool, default=False
+            Whether to repeat the animation
+        repeat_delay : int, default=1000
+            The delay between loops in milliseconds
+
+        Returns
+        -------
+        anim : matplotlib.animation.FuncAnimation
+            The animation object
+        '''
+        if not self.tr_bool:
+            raise ValueError('Time resolved data not found')
+        for fld in field:
+            if fld not in self.tr_fields:
+                raise ValueError(f'Field must be one of: {", ".join(self.tr_fields)}')
+            # Check if the field has been loaded. If unloaded, the list will be empty
+            if any([len(self.tr_data[fld][key]) == 0 for key in self.tr_data[fld]]):
+                self.load_time_resolved(fld)
+
+        # Use the length of the field to determine the number of subplots
+        num_plots = len(field)
+
+        # Set default matplotlib style
+        plt.rcParams.update({'font.size': fontsize, 'xtick.labelsize': ticklabelsize, 'ytick.labelsize': ticklabelsize})
+
+        # If 2 field, make them next to each other. If more than 2, make a grid (2x2, 3x3, etc.)
+        if num_plots == 1:
+            fig, axs = plt.subplots(1,1, dpi=dpi)
+        elif num_plots == 2:
+            fig, axs = plt.subplots(1,2, dpi=dpi)
+        elif num_plots == 3:
+            fig, axs = plt.subplots(1,3, dpi=dpi, figsize=(12,4))
+        elif num_plots < 5:
+            fig, axs = plt.subplots(2, 2, dpi=dpi)
+        elif num_plots < 10:
+            fig, axs = plt.subplots(3, 3, dpi=dpi)
+        elif num_plots < 17:
+            fig, axs = plt.subplots(4, 4, dpi=dpi)
+        else:
+            raise ValueError('Too many fields to plot')
+
+        # Get plot data
+        if collection is None:
+            data = []
+            for fld in field:
+                if not hasattr(self, 'avg_over_coll_tr_data'):
+                    self.avg_time_resolved_over_collections(fld)
+                if fld not in self.avg_over_coll_tr_data:
+                    self.avg_time_resolved_over_collections(fld)
+                data.append(self.avg_over_coll_tr_data[fld])
+        else:
+            data = [self.tr_data[fld][collection] for fld in field]
+
+        # Set up plot customizations
+        if title is None:
+            title = [f'Time resolved {fld}' for fld in field]
+        if ylabel is None:
+            ylabel = [f'{fld}' for fld in field]
+        set_xlabel_flag = False
+        if xlabel is None:
+            xlabel = []
+            set_xlabel_flag = True
+        if color is None:
+            color = ['black'] * len(field)
+        if xlim is None:
+            xlim = [None] * len(field)
+        if ylim is None:
+            ylim = [None] * len(field)
+
+        # Get x-axis data for each field
+        x = []
+        for ii, fld in enumerate(field):
+            if len(data[ii][0]) == len(self.cells):
+                x.append(self.cells)
+                if set_xlabel_flag:
+                    xlabel.append('Position [m]')
+            elif len(data[ii][0]) == len(self.nodes):
+                x.append(self.nodes)
+                if set_xlabel_flag:
+                    xlabel.append('Position [m]')
+            elif fld.startswith('EEdf'):
+                x.append(self.edf_energy['EEdf'])
+                if set_xlabel_flag:
+                    xlabel.append('Energy [eV]')
+            elif fld.startswith('IEdf'):
+                x.append(self.edf_energy['IEdf'])
+                if set_xlabel_flag:
+                    xlabel.append('Energy [eV]')
+            else:
+                raise ValueError(f'Could not get x-axis data for {fld}')
+
+        # Plot initial frame
+        lines = []
+        for ii, ax in enumerate(axs.flat):
+            if ii >= len(field):
+                ax.axis('off')
+                continue
+
+            if field[ii].startswith('EEdf'):
+                norm_data = data[ii][0] / (np.sum(data[ii][0] * np.diff(self.edf_energy['EEdf'])[0]) * self.edf_energy['EEdf'] ** (0.5))
+                tmp_line, = ax.plot(x[ii], norm_data, color=color[ii])
+                ax.set_yscale('log')
+            else:
+                tmp_line, = ax.plot(x[ii], data[ii][0], color=color[ii])
+            lines.append(tmp_line)
+
+            ax.set_xlabel(xlabel[ii])
+            ax.set_ylabel(ylabel[ii])
+            ax.set_title(title[ii])
+
+            ax.margins(x=0)
+
+            if ylim[ii] is None:
+                # Get the max and min
+                min = np.min(data[ii])
+                max = np.max(data[ii])
+
+                ax.set_ylim(min, max)
+            else:
+                ax.set_ylim(ylim[ii])
+
+            if xlim[ii] is not None:
+                ax.set_xlim(xlim[ii])
+
+        def update(frame):
+            for ii, line in enumerate(lines):
+                if field[ii].startswith('EEdf'):
+                    norm_data = data[ii][frame] / (np.sum(data[ii][frame] * np.diff(self.edf_energy['EEdf'])[0]) * self.edf_energy['EEdf'] ** (0.5))
+                    line.set_ydata(norm_data)
+                else:
+                    line.set_ydata(data[ii][frame])
+            return lines,
+
+        # Get the number of frames
+        if frames is None:
+            frames = len(data[0])
+        if repeat:
+            frames *= 2
+
+        if frames > len(data[0]):
+            raise ValueError('Number of frames is greater than the number of frames in the data')
+
+        anim = FuncAnimation(
+            fig,
+            update,
+            frames = frames,
+            interval=interval,
+            repeat=repeat,
+            repeat_delay=repeat_delay
+            )
+
+        fig.tight_layout()
+
         return anim
 
     def integrate_tr_power(self,
