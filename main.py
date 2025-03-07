@@ -73,7 +73,6 @@ class SEE:
         buffer = particle_containers.ParticleBoundaryBufferWrapper()
         elec_pc = particle_containers.ParticleContainerWrapper("electrons")
         lev = 0  # level 0 (no mesh refinement here)
-        step = self.sim_ext.warpx.getistep(lev)
         for boundary in ['z_lo', 'z_hi']:
 
             # Initialize z
@@ -109,6 +108,9 @@ class SEE:
                     n_SEE = np.sum(SEE_occurs)
 
                     self.send_SEE_number(n_SEE)
+
+                    if n_SEE == 0:
+                        continue
 
                     we = w[SEE_occurs] # account for variable weights
                     delta_te = delta_t[SEE_occurs]
@@ -148,7 +150,6 @@ class SEE:
         buffer = particle_containers.ParticleBoundaryBufferWrapper()
         elec_pc = particle_containers.ParticleContainerWrapper("electrons")
         lev = 0  # level 0 (no mesh refinement here)
-        step = self.sim_ext.warpx.getistep(lev)
         for boundary in ['z_lo', 'z_hi']:
 
             # Initialize z
@@ -191,6 +192,9 @@ class SEE:
                     n_SEE += np.sum(SEE_occurs) # uncomment for SEE_probability > 1
 
                     self.send_SEE_number(n_SEE)
+
+                    if n_SEE == 0:
+                        continue
 
                     we = w[SEE_occurs] # account for variable weights
                     delta_te = delta_t[SEE_occurs]
