@@ -8,6 +8,7 @@ from pywarpx import callbacks, fields, libwarpx, particle_containers, picmi
 from mpi4py import MPI as mpi
 
 from picmi_diagnostics.main import Diagnostics1D, ICPHeatSource, SEE
+from picmi_diagnostics.initial_profile_creator import EqualWeightParticleDistribution
 
 comm = mpi.COMM_WORLD
 num_proc = comm.Get_size()
@@ -92,6 +93,7 @@ class CapacitiveDischargeExample(object):
     # distribution = 'maxwellian'
     # distribution = 'girthy_maxwellian'
     # distribution = 'lorentzian'
+    # distribution = 'custom'
 
     # Set switches for custom diagnostics
     # Create switches for custom diagnostics
@@ -298,6 +300,47 @@ class CapacitiveDischargeExample(object):
             ion_distribution = picmi.AnalyticDistribution(
                     density_expression = density_str_Lorentzian,
                     rms_velocity=[np.sqrt(constants.kb * self.gas_temp / self.m_ion)]*3
+            )
+        elif self.distribution == 'custom':
+            # Create or load custom distribution
+            initial_density_z = np.array([self.zmin, (self.zmin + self.zmax) / 2, self.zmax])
+            initial_density = np.array([self.plasma_density*2/3, self.plasma_density, self.plasma_density*2/3])
+
+            # Create electron and ion data
+            elec_data = EqualWeightParticleDistribution(
+                self,
+                rms_velocity=[np.sqrt(constants.kb * self.elec_temp / constants.m_e)]*3,
+                density_profile_z=initial_density_z,
+                density_profile=initial_density,
+                mean_velocity=[0, 0, 0]
+            )
+            ion_data = EqualWeightParticleDistribution(
+                self,
+                rms_velocity=[np.sqrt(constants.kb * self.gas_temp / self.m_ion)]*3,
+                density_profile_z=initial_density_z,
+                density_profile=initial_density,
+                mean_velocity=[0, 0, 0]
+            )
+
+            # Create the distributions
+            # Create the distributions
+            elec_distribution = picmi.ParticleListDistribution(
+                x = elec_data.x,
+                y = elec_data.y,
+                z = elec_data.z,
+                ux = elec_data.ux,
+                uy = elec_data.uy,
+                uz = elec_data.uz,
+                weight = elec_data.weight
+            )
+            ion_distribution = picmi.ParticleListDistribution(
+                x = ion_data.x,
+                y = ion_data.y,
+                z = ion_data.z,
+                ux = ion_data.ux,
+                uy = ion_data.uy,
+                uz = ion_data.uz,
+                weight = ion_data.weight
             )
         else:
             exit('ERROR: Enter an appropriate string for initial density.')
