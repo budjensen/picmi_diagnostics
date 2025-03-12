@@ -24,7 +24,8 @@ ng_1Torr = 322.3e20                                     # 1 Torr in m^-3
 
 class CapacitiveDischargeExample(object):
 
-    gap             = 30*milli                          # m
+    zmin            = 0.0                               # m
+    zmax            = 30*milli                          # m
     freq            = 13.56e6                           # Hz
     voltage         = 0.0                               # V
     voltage_rf      = 50.0                              # V
@@ -42,7 +43,7 @@ class CapacitiveDischargeExample(object):
     omega_p         = np.sqrt(2 * plasma_density * constants.q_e**2 / (constants.ep0 * constants.m_e))
 
     dz              = lambda_De / 2                     # Cell size
-    nz              = int(gap / dz)                     # Number of cells
+    nz              = int(zmax / dz)                     # Number of cells
 
     dt              = 1.0 / (5 * omega_p)               # [s]
 
@@ -238,8 +239,8 @@ class CapacitiveDischargeExample(object):
         self.grid = picmi.Cartesian1DGrid(
             number_of_cells=[self.nz],
             # warpx_blocking_factor=self.blocking_factor,
-            lower_bound=[0],
-            upper_bound=[self.gap],
+            lower_bound=[self.zmin],
+            upper_bound=[self.zmax],
             lower_boundary_conditions=['dirichlet'],
             upper_boundary_conditions=['dirichlet'],
             lower_boundary_conditions_particles=['absorbing'],
@@ -258,9 +259,9 @@ class CapacitiveDischargeExample(object):
         #######################################################################
         # Particle types setup                                                #
         #######################################################################
-        density_str_Lorentzian = f'{self.plasma_density}/(1+((z-{self.gap/2})/{self.gap/8})**2)'
-        density_str_Maxwellian = f'{self.plasma_density}*exp(-((z-{self.gap/2})**2)/(2*({self.gap/4})**2))'
-        density_str_Maxwellian_sheath = f'if(z<{self.gap/3}, {self.plasma_density}*exp(-((z-{self.gap/3})/{self.gap/6})**2), if( z>{2/3*self.gap}, {self.plasma_density}*exp(-((z-{2*self.gap/3})/{self.gap/6})**2), {self.plasma_density}))'
+        density_str_Lorentzian = f'{self.plasma_density}/(1+((z-{self.zmax/2})/{self.zmax/8})**2)'
+        density_str_Maxwellian = f'{self.plasma_density}*exp(-((z-{self.zmax/2})**2)/(2*({self.zmax/4})**2))'
+        density_str_Maxwellian_sheath = f'if(z<{self.zmax/3}, {self.plasma_density}*exp(-((z-{self.zmax/3})/{self.zmax/6})**2), if( z>{2/3*self.zmax}, {self.plasma_density}*exp(-((z-{2*self.zmax/3})/{self.zmax/6})**2), {self.plasma_density}))'
 
         if self.distribution == 'uniform':
             elec_distribution = picmi.UniformDistribution(

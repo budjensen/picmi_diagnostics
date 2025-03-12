@@ -48,7 +48,7 @@ class SEE:
         self.sim_ext = sim_ext
 
         # Import simulation parameters
-        self.zmax = simulation_obj.gap
+        self.zmax = simulation_obj.zmax
         self.dt   = simulation_obj.dt
 
         # Save the SEE probability and species
@@ -798,7 +798,7 @@ class Diagnostics1D:
         self.dt = simulation_obj.dt
         self.nz = simulation_obj.nz
         self.dz = simulation_obj.dz
-        self.nodes = np.linspace(0, simulation_obj.gap, self.nz + 1)
+        self.nodes = np.linspace(0, simulation_obj.zmax, self.nz + 1)
 
         self.species_names = ['electrons']
         if ion_spec_names is not None:
@@ -858,8 +858,8 @@ class Diagnostics1D:
         self.edf_bounds = np.array([])
         if any(dict.get('EEdf') or dict.get('IEdf') for dict in self.master_diagnostic_dict.values()):
             self.edf_bounds = np.array(simulation_obj.edf_boundaries)
-            if any(self.edf_bounds < 0) or any(self.edf_bounds > simulation_obj.gap):
-                raise ValueError('simulation_obj.edf_boundaries ERROR: EDF boundaries must be within the range [0, gap].')
+            if any(self.edf_bounds < simulation_obj.zmin) or any(self.edf_bounds > simulation_obj.zmax):
+                raise ValueError('simulation_obj.edf_boundaries ERROR: EDF boundaries must be within the range [zmin, zmax].')
             if not all(self.edf_bounds[i] < self.edf_bounds[i + 1] for i in range(len(self.edf_bounds) - 1)):
                 raise ValueError('simulation_obj.edf_boundaries ERROR: EDF boundaries must be in ascending order.')
 
@@ -1140,7 +1140,7 @@ class Diagnostics1D:
                 os.makedirs(self.Riz_dir_by_species[species])
 
         # Save the ionization rate grid
-        Riz_z_edges = np.linspace(0, simulation_obj.gap, self.nz + 1)
+        Riz_z_edges = np.linspace(0, simulation_obj.zmax, self.nz + 1)
         Riz_time_edges = np.linspace(0, 1, self.Riz_nt + 1)
         Riz_z_centers = np.multiply(Riz_z_edges[:-1] + Riz_z_edges[1:], 0.5)
         Riz_time_centers = np.multiply(Riz_time_edges[:-1] + Riz_time_edges[1:], 0.5)
@@ -1385,7 +1385,7 @@ class Diagnostics1D:
         np.save('diags/nodes.npy', self.nodes)
 
         # Make a npy file of cell centers
-        z = np.linspace(self.dz / 2, simulation_obj.gap - self.dz / 2, self.nz)
+        z = np.linspace(self.dz / 2, simulation_obj.zmax - self.dz / 2, self.nz)
         # Check if file exists
         self.check_file('diags/cells.npy')
         np.save('diags/cells.npy', z)
