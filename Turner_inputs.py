@@ -24,7 +24,8 @@ ng_1Torr = 322.3e20                     # 1 Torr in m^-3
 
 class CapacitiveDischargeExample(object):
 
-    gap             = 67*milli                          # m
+    zmin            = 0.0                               # m
+    zmax            = 67*milli                          # m
     freq            = 13.56e6                           # Hz
     voltage_rf      = 450.0                             # V
     gas_density     = 30.0*ng_1Torr*milli               # [mTorr]
@@ -39,8 +40,8 @@ class CapacitiveDischargeExample(object):
     lambda_De       = np.sqrt(constants.ep0 * constants.kb * 2 * elec_temp / (2 * plasma_density * constants.q_e**2))
     omega_p         = np.sqrt(2 * plasma_density * constants.q_e**2 / (constants.ep0 * constants.m_e))
 
-    dz              = gap/128                           # Cell size
-    nz              = int(gap / dz)                     # Number of cells
+    dz              = zmax/128                           # Cell size
+    nz              = int(zmax / dz)                     # Number of cells
 
     dt              = 1/(400*freq)                      # [s]
 
@@ -90,6 +91,7 @@ class CapacitiveDischargeExample(object):
             'Jze': False,
             'Jzi': False,
             'J_d': False,
+            'J_w': False,
             'CPe': False,
             'CPi': False,
             'IPe': False,
@@ -107,6 +109,7 @@ class CapacitiveDischargeExample(object):
             'Jze': True,
             'Jzi': True,
             'J_d': True,
+            'J_w': False,
             'CPe': False,
             'CPi': False,
             'IPe': False,
@@ -124,6 +127,7 @@ class CapacitiveDischargeExample(object):
             'Jze': False,
             'Jzi': False,
             'J_d': False,
+            'J_w': False,
             'CPe': False,
             'CPi': False,
             'IPe': False,
@@ -193,7 +197,7 @@ class CapacitiveDischargeExample(object):
         for i in range(self.num_diag_steps):
             diag_start_times.append(diag_start + i * diag_n_evolve)
         diag_start_times = np.array(diag_start_times)
-        
+
         # Convert times to steps
         self.diag_start = np.round(diag_start_times / self.dt).astype(int)
         self.diag_period_steps = int(self.diag_time / self.dt)
@@ -218,8 +222,8 @@ class CapacitiveDischargeExample(object):
         self.grid = picmi.Cartesian1DGrid(
             number_of_cells=[self.nz],
             # warpx_blocking_factor=self.blocking_factor,
-            lower_bound=[0],
-            upper_bound=[self.gap],
+            lower_bound=[self.zmin],
+            upper_bound=[self.zmax],
             lower_boundary_conditions=['dirichlet'],
             upper_boundary_conditions=['dirichlet'],
             lower_boundary_conditions_particles=['absorbing'],
@@ -408,12 +412,12 @@ class CapacitiveDischargeExample(object):
         particle_buffer = particle_containers.ParticleBoundaryBufferWrapper()
         particle_buffer.clear_buffer()
 
-        callbacks.installbeforestep(self.picmi_diagnostics.do_diagnostics)
+        callbacks.installafterstep(self.picmi_diagnostics.do_diagnostics)
 
         # Run the simulation until the end
         self.sim.step(self.max_steps - elapsed_steps + self.bonus_steps)
-        
-        callbacks.uninstallcallback('beforestep', self.picmi_diagnostics.do_diagnostics)
+
+        callbacks.uninstallcallback('afterstep', self.picmi_diagnostics.do_diagnostics)
 
 
 ##########################

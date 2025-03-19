@@ -73,6 +73,11 @@ class SEE:
         buffer = particle_containers.ParticleBoundaryBufferWrapper()
         elec_pc = particle_containers.ParticleContainerWrapper("electrons")
         lev = 0  # level 0 (no mesh refinement here)
+
+        self.SEE_current_this_step = {
+            'z_lo': 0,
+            'z_hi': 0
+        }
         for boundary in ['z_lo', 'z_hi']:
 
             # Initialize z
@@ -93,27 +98,31 @@ class SEE:
 
                 if len(w) == 0:
                     if comm.rank == root:
-                        self.send_SEE_number(0)
+                        self.send_SEE_number_and_weight(0)
                         continue
                     else:
-                        num_SEE_to_add = self.receive_SEE_number(root)
+                        num_SEE_to_add, weights = self.receive_SEE_number_and_weight(root)
 
                         if num_SEE_to_add == 0:
                             continue
 
+                        self.SEE_current_this_step[boundary] += np.sum(weights)
+
+                        # Call elec_pc.add_particles() to prevent a hang
                         elec_pc.add_particles()
+
                 else:
                     # Determine if SEE occurs for each particle
                     SEE_occurs = np.random.uniform(size=len(w)) <= self.SEE_probability
                     n_SEE = np.sum(SEE_occurs)
 
-                    self.send_SEE_number(n_SEE)
+                    we = w[SEE_occurs] # account for variable weights
+                    delta_te = delta_t[SEE_occurs]
+
+                    self.send_SEE_number_and_weight(n_SEE, weights=we)
 
                     if n_SEE == 0:
                         continue
-
-                    we = w[SEE_occurs] # account for variable weights
-                    delta_te = delta_t[SEE_occurs]
 
                     # Get the velocity angles isotropically distribued on a unit hemisphere
                     phi = 2 * np.pi * np.random.uniform(size=n_SEE)
@@ -126,6 +135,8 @@ class SEE:
                         uz = self.SEE_velocity * costheta
                     else:
                         uz = -self.SEE_velocity * costheta
+
+                    self.SEE_current_this_step[boundary] += np.sum(we)
 
                     elec_pc.add_particles(
                         z=z + (self.dt - delta_te) * uz,
@@ -150,6 +161,11 @@ class SEE:
         buffer = particle_containers.ParticleBoundaryBufferWrapper()
         elec_pc = particle_containers.ParticleContainerWrapper("electrons")
         lev = 0  # level 0 (no mesh refinement here)
+
+        self.SEE_current_this_step = {
+            'z_lo': 0,
+            'z_hi': 0
+        }
         for boundary in ['z_lo', 'z_hi']:
 
             # Initialize z
@@ -170,15 +186,18 @@ class SEE:
 
                 if len(w) == 0:
                     if comm.rank == root:
-                        self.send_SEE_number(0)
+                        self.send_SEE_number_and_weight(0)
                         continue
                     else:
-                        num_SEE_to_add = self.receive_SEE_number(root)
+                        num_SEE_to_add, weights = self.receive_SEE_number_and_weight(root)
 
                         if num_SEE_to_add == 0:
                             continue
 
+                        self.SEE_current_this_step[boundary] += np.sum(weights)
+
                         elec_pc.add_particles()
+
                 else:
                     # Calculate the number of guaranteed secondary electrons to add
                     n_SEE = self.min_SEE_to_inject * len(w)
@@ -191,17 +210,17 @@ class SEE:
                     SEE_occurs = np.random.uniform(size=len(w)) <= self.SEE_probability
                     n_SEE += np.sum(SEE_occurs) # uncomment for SEE_probability > 1
 
-                    self.send_SEE_number(n_SEE)
-
-                    if n_SEE == 0:
-                        continue
-
                     we = w[SEE_occurs] # account for variable weights
                     delta_te = delta_t[SEE_occurs]
 
                     # Prepend the guaranteed secondary electrons
                     we = np.concatenate((w_prefix, we))
                     delta_te = np.concatenate((delta_t_prefix, delta_te))
+
+                    self.send_SEE_number_and_weight(n_SEE, weights=we)
+
+                    if n_SEE == 0:
+                        continue
 
                     # Get the velocity angles isotropically distribued on a unit hemisphere
                     phi = 2 * np.pi * np.random.uniform(size=n_SEE)
@@ -214,6 +233,8 @@ class SEE:
                         uz = self.SEE_velocity * costheta
                     else:
                         uz = -self.SEE_velocity * costheta
+
+                    self.SEE_current_this_step[boundary] += np.sum(we)
 
                     elec_pc.add_particles(
                         z=z + (self.dt - delta_te) * uz,
@@ -230,23 +251,30 @@ class SEE:
                     # doesn't hang) and then only add the particles on the correct rank. This is a bit of a hack but
                     # works and is probably even faster than adding them since we'd need to send the info out and back
 
-    def send_SEE_number(self,
-                        num_SEE_to_add: int
-                        ):
+    def send_SEE_number_and_weight(self,
+                                   num_SEE_to_add: int,
+                                   weights: np.ndarray = None
+                                   ) :
         '''
-        Send the number of secondary electrons to add to all processes.
+        Send the number of secondary electrons and their weights to all processes.
 
         Parameters
         ----------
         num_SEE_to_add: str
             number of secondary electrons to add
+        weights: float, optional
+            weight of the secondary electrons to add
         '''
         # Send the number of secondary electrons to add
         comm.Bcast(np.array([num_SEE_to_add], dtype='i'), root=comm.rank)
 
-    def receive_SEE_number(self,
-                           root
-                           ) -> int:
+        # Only send weights if we're adding SEE particles and weights is provided
+        if num_SEE_to_add > 0 and weights is not None:
+            comm.Bcast(np.array(weights, dtype='d'), root=comm.rank)
+
+    def receive_SEE_number_and_weight(self,
+                                      root: int,
+                                      ) -> tuple[int, np.ndarray]:
         '''
         Receive the number of secondary electrons to add from the root process.
 
@@ -254,12 +282,23 @@ class SEE:
         ----------
         root: int
             Root process to receive from
+
+        Returns
+        -------
+        tuple
+            (num_SEE_to_add, weights) where weights is the array of particle weights
         '''
         # Get the number of secondary electrons to add
         num_SEE_to_add = np.array([0], dtype='i')
         comm.Bcast(num_SEE_to_add, root=root)
 
-        return num_SEE_to_add[0]
+        # Only receive weights if we're adding SEE particles
+        if num_SEE_to_add[0] > 0:
+            weights = np.array([0] * num_SEE_to_add[0], dtype='d')
+            comm.Bcast(weights, root=root)
+            return num_SEE_to_add[0], weights  # Return the entire weights array
+        else:
+            return 0, np.array([], dtype='d')
 
     def concat(list_of_arrays):
         if len(list_of_arrays) == 0:
@@ -614,6 +653,7 @@ class Diagnostics1D:
     def __init__(self,
                  simulation_obj: CapacitiveDischargeExample,
                  sim_ext: picmi.Simulation.extension,
+                 SEE_obj: SEE = None,
                  switches: dict = None,
                  interval_times: list = None,
                  ion_spec_names: list = None,
@@ -632,6 +672,8 @@ class Diagnostics1D:
             Object of the main simulation class
         sim_ext: picmi.Simulation.extension
             Simulation extension object
+        SEE_obj: SEE, optional
+            An object of the SEE class, if SEE is turned on
         switches: dict, optional
             Dictionary of switches for diagnostics
         interval_times: list, optional
@@ -668,6 +710,7 @@ class Diagnostics1D:
                 'Jze': False,
                 'Jzi': False,
                 'J_d': False,
+                'J_w': False,
                 'CPe': False,
                 'CPi': False,
                 'IPe': False,
@@ -685,6 +728,7 @@ class Diagnostics1D:
                 'Jze': True,
                 'Jzi': True,
                 'J_d': True,
+                'J_w': True,
                 'CPe': False,
                 'CPi': False,
                 'IPe': False,
@@ -702,6 +746,7 @@ class Diagnostics1D:
                 'Jze': False,
                 'Jzi': False,
                 'J_d': False,
+                'J_w': False,
                 'CPe': False,
                 'CPi': False,
                 'IPe': False,
@@ -735,6 +780,7 @@ class Diagnostics1D:
                 'Jze': False,
                 'Jzi': False,
                 'J_d': False,
+                'J_w': False,
                 'CPe': False,
                 'CPi': False,
                 'IPe': False,
@@ -752,6 +798,7 @@ class Diagnostics1D:
                 'Jze': True,
                 'Jzi': True,
                 'J_d': True,
+                'J_w': True,
                 'CPe': False,
                 'CPi': False,
                 'IPe': False,
@@ -769,6 +816,7 @@ class Diagnostics1D:
                 'Jze': False,
                 'Jzi': False,
                 'J_d': False,
+                'J_w': False,
                 'CPe': False,
                 'CPi': False,
                 'IPe': False,
@@ -798,7 +846,7 @@ class Diagnostics1D:
         self.dt = simulation_obj.dt
         self.nz = simulation_obj.nz
         self.dz = simulation_obj.dz
-        self.nodes = np.linspace(0, simulation_obj.zmax, self.nz + 1)
+        self.nodes = np.linspace(simulation_obj.zmin, simulation_obj.zmax, self.nz + 1)
 
         self.species_names = ['electrons']
         if ion_spec_names is not None:
@@ -806,6 +854,9 @@ class Diagnostics1D:
 
         # Set simulation extension object
         self.sim_ext = sim_ext
+
+        # Set external class objects
+        self.SEE_obj = SEE_obj
 
         # General diagnostics are collected in three tyes:
         #  1. Time averaged
@@ -878,9 +929,10 @@ class Diagnostics1D:
         # Set up diagnostics
         self._import_general_timing_info(simulation_obj)
         self._get_time_resolved_steps(simulation_obj)
-        self.in_coll_steps = [[] for _ in range(self.num_outputs)]
         if any(interval_dict.values()):
             self._get_interval_collection_steps()
+        else:
+            self.in_coll_steps = [[] for _ in range(self.num_outputs)]
         if self.Riz_switch:
             self._setup_Riz_diag(simulation_obj)
         self._calculate_N_collections()
@@ -946,6 +998,7 @@ class Diagnostics1D:
         self.tr_Jze = np.zeros((self.tr_coll[0], self.nz + 1))
         self.tr_Jzi = np.zeros((self.tr_coll[0], self.nz + 1))
         self.tr_J_d = np.zeros((self.tr_coll[0], self.nz))
+        self.tr_J_w = np.zeros((self.tr_coll[0], 2))
         self.tr_CPe = np.zeros((self.tr_coll[0], self.nz))
         self.tr_CPi = np.zeros((self.tr_coll[0], self.nz))
         self.tr_IPe = np.zeros((self.tr_coll[0], self.nz))
@@ -971,6 +1024,7 @@ class Diagnostics1D:
         self.ta_Jze = np.zeros(self.nz + 1)
         self.ta_Jzi = np.zeros(self.nz + 1)
         self.ta_J_d = np.zeros(self.nz)
+        self.ta_J_w = np.zeros(2)
         self.ta_CPe = np.zeros(self.nz)
         self.ta_CPi = np.zeros(self.nz)
         self.ta_IPe = np.zeros(self.nz)
@@ -988,6 +1042,7 @@ class Diagnostics1D:
         self.in_Jze = np.zeros((len(self.in_slices), self.nz + 1))
         self.in_Jzi = np.zeros((len(self.in_slices), self.nz + 1))
         self.in_J_d = np.zeros((len(self.in_slices), self.nz))
+        self.in_J_w = np.zeros((len(self.in_slices), 2))
         self.in_CPe = np.zeros((len(self.in_slices), self.nz))
         self.in_CPi = np.zeros((len(self.in_slices), self.nz))
         self.in_IPe = np.zeros((len(self.in_slices), self.nz))
@@ -1021,6 +1076,8 @@ class Diagnostics1D:
         for i in range(len(self.species_names)):
             self.J_d.append(np.zeros(self.nz))
         self.J_d = np.stack(self.J_d)
+
+        self.J_w = np.zeros(2)
 
         self.P_C = []
         for i in range(len(self.species_names)):
@@ -1201,6 +1258,8 @@ class Diagnostics1D:
         len(self.in_coll_steps[ii]) = 4
         ```
         '''
+        self.in_coll_steps = []
+
         for ii in range(self.num_outputs):
             # Start time of current diag output window
             output_start_t = self.diag_start[ii] * self.dt
@@ -1609,6 +1668,65 @@ class Diagnostics1D:
 
         # Report the current
         self.J[idx] = J_data
+
+    def update_J_w(self):
+        '''
+        Return current density [A/m^2] at the left and right boundaries
+        for all species. Needs to be multiplied by charge and divided by
+        dt before being used.
+        '''
+        buffer = particle_containers.ParticleBoundaryBufferWrapper()
+        lev = 0
+
+        # Initialize arrays for each boundary
+        J_w_lo = np.zeros(1, dtype=int)
+        J_w_hi = np.zeros(1, dtype=int)
+
+        # Process z_lo boundary (only on rank 0)
+        if comm.rank == 0:
+            for i, species in enumerate(self.species_names):
+                try:
+                    w = np.concatenate(buffer.get_particle_scraped_this_step(species, 'z_lo', "w", lev))
+                    count = 0 if len(w) == 0 else len(w) * w[0] # Assume all weights are the same
+                except ValueError:
+                    count = 0
+
+                # For z_lo, boundary_factor = -1
+                if i == 0:  # Electrons
+                    J_w_lo[0] += count  # -= count * (-1)
+                else:       # Ions
+                    J_w_lo[0] -= count  # += count * (-1)
+
+            # Add SEE contribution
+            if self.SEE_obj is not None:
+                J_w_lo[0] -= self.SEE_obj.SEE_current_this_step['z_lo']
+
+        # Process z_hi boundary (only on rank num_proc - 1)
+        if comm.rank == num_proc - 1:
+            for i, species in enumerate(self.species_names):
+                try:
+                    w = np.concatenate(buffer.get_particle_scraped_this_step(species, 'z_hi', "w", lev))
+                    count = 0 if len(w) == 0 else len(w) * w[0] # Assume all weights are the same
+                except ValueError:
+                    count = 0
+
+                # For z_hi, boundary_factor = 1
+                if i == 0:  # Electrons
+                    J_w_hi[0] -= count  # -= count * 1
+                else:       # Ions
+                    J_w_hi[0] += count  # += count * 1
+
+            # Add SEE contribution
+            if self.SEE_obj is not None:
+                J_w_hi[0] += self.SEE_obj.SEE_current_this_step['z_hi']
+
+        # Broadcast results to all processes
+        comm.Bcast(J_w_lo, root=0)
+        comm.Bcast(J_w_hi, root=num_proc - 1)
+
+        # Save the results
+        self.J_w[0] = J_w_lo[0]
+        self.J_w[1] = J_w_hi[0]
 
     def update_E(self):
         '''
@@ -2163,6 +2281,8 @@ class Diagnostics1D:
                 self.tr_Jzi[tr_idx] = self.J[1]
             if temp_settings['J_d']:
                 self.tr_J_d[tr_idx] = self.J_d
+            if temp_settings['J_w']:
+                self.tr_J_w[tr_idx] = self.J_w
             if temp_settings['CPe']:
                 self.tr_CPe[tr_idx] = self.P_C[0]
             if temp_settings['CPi']:
@@ -2205,6 +2325,8 @@ class Diagnostics1D:
                 self.ta_Jzi += self.J[1]
             if temp_settings['J_d']:
                 self.ta_J_d += self.J_d
+            if temp_settings['J_w']:
+                self.ta_J_w += self.J_w
             if temp_settings['CPe']:
                 self.ta_CPe += self.P_C[0]
             if temp_settings['CPi']:
@@ -2250,6 +2372,8 @@ class Diagnostics1D:
                 self.in_Jzi[interval_idx] += self.J[1]
             if temp_settings['J_d']:
                 self.in_J_d[interval_idx] += self.J_d
+            if temp_settings['J_w']:
+                self.in_J_w[interval_idx] += self.J_w
             if temp_settings['CPe']:
                 self.in_CPe[interval_idx] += self.P_C[0]
             if temp_settings['CPi']:
@@ -2317,6 +2441,7 @@ class Diagnostics1D:
             if any(dict.get('Jze') for dict in self.master_diagnostic_dict.values()): self.update_Jz(self.species_names[0])
             if any(dict.get('Jzi') for dict in self.master_diagnostic_dict.values()): self.update_Jz(self.species_names[1])
             if any(dict.get('J_d') for dict in self.master_diagnostic_dict.values()): self.update_J_d()
+            if any(dict.get('J_w') for dict in self.master_diagnostic_dict.values()): self.update_J_w()
             if any(dict.get('CPe') for dict in self.master_diagnostic_dict.values()): self.update_P_C(self.species_names[0])
             if any(dict.get('CPi') for dict in self.master_diagnostic_dict.values()): self.update_P_C(self.species_names[1])
             if any(dict.get('IPe') for dict in self.master_diagnostic_dict.values()): self.update_P_I(self.species_names[0])
@@ -2405,6 +2530,7 @@ class Diagnostics1D:
         self.tr_Jze = np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
         self.tr_Jzi = np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
         self.tr_J_d = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
+        self.tr_J_w = np.zeros((self.tr_coll[self.curr_diag_output], 2))
         self.tr_CPe = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
         self.tr_CPi = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
         self.tr_IPe = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
@@ -2430,6 +2556,7 @@ class Diagnostics1D:
         self.ta_Jze = np.zeros(self.nz + 1)
         self.ta_Jzi = np.zeros(self.nz + 1)
         self.ta_J_d = np.zeros(self.nz)
+        self.ta_J_w = np.zeros(2)
         self.ta_CPe = np.zeros(self.nz)
         self.ta_CPi = np.zeros(self.nz)
         self.ta_IPe = np.zeros(self.nz)
@@ -2447,6 +2574,7 @@ class Diagnostics1D:
         self.in_Jze = np.zeros((len(self.in_slices), self.nz + 1))
         self.in_Jzi = np.zeros((len(self.in_slices), self.nz + 1))
         self.in_J_d = np.zeros((len(self.in_slices), self.nz))
+        self.in_J_w = np.zeros((len(self.in_slices), 2))
         self.in_CPe = np.zeros((len(self.in_slices), self.nz))
         self.in_CPi = np.zeros((len(self.in_slices), self.nz))
         self.in_IPe = np.zeros((len(self.in_slices), self.nz))
@@ -2500,6 +2628,8 @@ class Diagnostics1D:
                 self.tr_Jzi *= Jz_factor
             if active['J_d']:
                 self.tr_J_d *= constants.ep0 / self.dt
+            if active['J_w']:
+                self.tr_J_w *= constants.q_e / self.dt
             if active['CPe']:
                 CP_factor = self.charge_by_name[species[0]] / self.dz
                 self.tr_CPe *= CP_factor
@@ -2568,6 +2698,9 @@ class Diagnostics1D:
             if active['J_d']:
                 Jd_factor = constants.ep0 / self.dt
                 self.ta_J_d *= Jd_factor / collections
+            if active['J_w']:
+                Jw_factor = constants.q_e / self.dt
+                self.ta_J_w *= Jw_factor / collections
             if active['CPe']:
                 CP_factor = self.charge_by_name[species[0]] / self.dz
                 self.ta_CPe *= CP_factor / collections
@@ -2639,6 +2772,12 @@ class Diagnostics1D:
                     if len(self.in_coll_steps[self.curr_diag_output]) == 0:
                         continue
                     self.in_J_d[ii] *= Jd_factor / len(self.in_coll_steps[self.curr_diag_output])
+            if active['J_w']:
+                Jw_factor = constants.q_e / self.dt
+                for ii in range(len(self.in_slices)):
+                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                        continue
+                    self.in_J_w[ii] *= Jw_factor / len(self.in_coll_steps[self.curr_diag_output])
             if active['IPe']:
                 IP_factor = self.charge_by_name[species[0]] / self.dz
                 for ii in range(len(self.in_slices)):

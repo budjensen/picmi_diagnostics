@@ -113,6 +113,7 @@ class CapacitiveDischargeExample(object):
             'Jze': False,
             'Jzi': False,
             'J_d': False,
+            'J_w': False,
             'CPe': False,
             'CPi': False,
             'IPe': False,
@@ -130,6 +131,7 @@ class CapacitiveDischargeExample(object):
             'Jze': True,
             'Jzi': True,
             'J_d': True,
+            'J_w': False,
             'CPe': False,
             'CPi': False,
             'IPe': False,
@@ -147,6 +149,7 @@ class CapacitiveDischargeExample(object):
             'Jze': False,
             'Jzi': False,
             'J_d': False,
+            'J_w': False,
             'CPe': False,
             'CPi': False,
             'IPe': False,
@@ -483,6 +486,7 @@ class CapacitiveDischargeExample(object):
                 ion_spec_names=[ion_name]
             )
 
+        self.SEE_routine = None
         if self.flag_SEE:
             self.SEE_routine = SEE(
                 self,
@@ -496,6 +500,7 @@ class CapacitiveDischargeExample(object):
         self.picmi_diagnostics = Diagnostics1D(
             self,
             self.sim.extension,
+            SEE_obj=self.SEE_routine,
             switches=self.diag_switches,
             interval_times=self.interval_diag_times,
             ion_spec_names=[ion_name],
@@ -528,13 +533,13 @@ class CapacitiveDischargeExample(object):
         particle_buffer = particle_containers.ParticleBoundaryBufferWrapper()
         particle_buffer.clear_buffer()
 
-        callbacks.installbeforestep(self.picmi_diagnostics.do_diagnostics)
+        callbacks.installafterstep(self.picmi_diagnostics.do_diagnostics)
 
         # Run the simulation until the end
         self.sim.step(self.max_steps - elapsed_steps + self.bonus_steps)
 
         # Uninstall callbacks
-        callbacks.uninstallcallback('beforestep', self.picmi_diagnostics.do_diagnostics)
+        callbacks.uninstallcallback('afterstep', self.picmi_diagnostics.do_diagnostics)
         if self.flag_ICP_heat:
             callbacks.uninstallcallback('afterEsolve', self.ICP_heating_source.calculate_E_ICP)
         if self.flag_SEE:
