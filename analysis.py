@@ -2163,6 +2163,71 @@ class Analysis:
                     self.ta_data[fld][coll] = np.load(f'{self.ta_colls[coll]}/{fld}.npy')
         return self.ta_data
 
+    def add_time_averaged_field(self, field: str):
+        '''
+        Add a time averaged field to the time averaged data
+
+        Parameters
+        ----------
+        field : str
+            The field to add. Must be one of 'P_e', 'P_i', 'P_t', 'EfV',
+            'Jzc'
+
+        Returns
+        -------
+        tr_data : dict[dict[stack of np.ndArray]]
+            The time resolved data
+        '''
+        if not self.ta_bool:
+            raise ValueError('Time averaged data not found')
+        if field not in ['P_e', 'P_i', 'P_t', 'EfV', 'Jzc']:
+            raise ValueError('Field must be one of: P_e, P_i, P_t, EfV, Jzc')
+        if field in ['P_e', 'P_i', 'P_t']:
+            if field not in self.ta_fields:
+                self.add_time_averaged_field('EfV')
+            if field == 'P_e':
+                self.load_time_averaged('Jze')
+                self.ta_data[field] = {}
+                for coll in self.ta_data['EfV']:
+                    self.ta_data[field][coll] = self.ta_data['EfV'][coll] * self.ta_data['Jze'][coll]
+                # Check if the field is already in self.ta_fields before adding
+                if field not in self.ta_fields:
+                    self.ta_fields.append(field)
+            elif field == 'P_i':
+                self.load_time_averaged('Jzi')
+                self.ta_data[field] = {}
+                for coll in self.ta_data['EfV']:
+                    self.ta_data[field][coll] = self.ta_data['EfV'][coll] * self.ta_data['Jzi'][coll]
+                # Check if the field is already in self.ta_fields before adding
+                if field not in self.ta_fields:
+                    self.ta_fields.append(field)
+            elif field == 'P_t':
+                self.load_time_averaged('Jze')
+                self.load_time_averaged('Jzi')
+                self.ta_data[field] = {}
+                for coll in self.ta_data['EfV']:
+                    self.ta_data[field][coll] = self.ta_data['EfV'][coll] * (self.ta_data['Jze'][coll] + self.ta_data['Jzi'][coll])
+                # Check if the field is already in self.ta_fields before adding
+                if field not in self.ta_fields:
+                    self.ta_fields.append(field)
+        elif field == 'EfV':
+            self.load_time_averaged('phi')
+            self.ta_data[field] = {}
+            for coll in self.ta_data['phi']:
+                self.ta_data[field][coll] = -np.gradient(self.in_data['phi'][coll], self.dz)
+            # Check if the field is already in self.ta_fields before adding
+            if field not in self.ta_fields:
+                self.ta_fields.append(field)
+        elif field == 'Jzc':
+            self.load_time_averaged('Jze')
+            self.load_time_averaged('Jzi')
+            self.ta_data[field] = {}
+            for coll in self.ta_data['Jze']:
+                self.ta_data[field][coll] = self.ta_data['Jze'][coll] + self.ta_data['Jzi'][coll]
+            # Check if the field is already in self.ta_fields before adding
+            if field not in self.ta_fields:
+                self.ta_fields.append(field)
+
     def avg_time_averaged(self, field: str = None):
         '''
         Average the time averaged data over all collections
