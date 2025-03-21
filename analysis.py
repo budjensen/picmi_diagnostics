@@ -2263,6 +2263,7 @@ class Analysis:
     def plot_time_averaged(self,
                            field: str,
                            plot_all_coll = True,
+                           edf_log_plot = False,
                            ax = None,
                            dpi=150,
                            cmap = 'coolwarm'):
@@ -2275,6 +2276,8 @@ class Analysis:
             The field to plot
         plot_all_coll : bool, default=True
             Whether to plot all collections on the same axis
+        edf_log_plot : bool, default=False
+            Whether to plot the EDF in log scale on the y-axis
         ax : matplotlib.axes.Axes, default=None
             The axes object to plot on. If None, creates a new figure and axes
         dpi : int
@@ -2290,9 +2293,17 @@ class Analysis:
             raise ValueError('Time averaged data not found')
         if field not in self.ta_fields:
             raise ValueError(f'Field must be one of: {", ".join(self.ta_fields)}')
+        if edf_log_plot and not field.startswith('EEdf') and not field.startswith('IEdf'):
+            raise ValueError('Field must be one of: EEdf, IEdf')
         # Check if the field has been loaded. If it unloaded, the list will be empty
         if any([len(self.ta_data[field][key]) == 0 for key in self.ta_data[field]]):
             self.load_time_averaged(field)
+
+        if edf_log_plot:
+            if field.startswith('EEdf'):
+                edf_type = 'EEdf'
+            elif field.startswith('IEdf'):
+                edf_type = 'IEdf'
 
         return_fig = False
         if ax is None:
@@ -2324,18 +2335,28 @@ class Analysis:
         if plot_all_coll:
             num = len(self.ta_data[field])
             for coll in self.ta_data[field]:
+                data = self.ta_data[field][coll]
+                if edf_log_plot:
+                    data /= self.edf_energy[edf_type] ** (0.5)
                 ax.plot(x, self.ta_data[field][coll],
                         label = f'Collection {coll}',
                         alpha = 0.4,
                         color = self._color_chooser(coll, num, cmap=cmap))
 
-        ax.plot(x, self.avg_ta_data[field], label='Average', color = 'black')
+        if edf_log_plot:
+            ax.plot(x, self.avg_ta_data[field] / self.edf_energy[edf_type] ** (0.5),
+                    label='Average', color = 'black')
+        else:
+            ax.plot(x, self.avg_ta_data[field],
+                    label='Average', color = 'black')
         ax.set_xlabel(xlabel)
         ax.set_ylabel(f'{field}')
         ax.set_title(f'Time averaged {field}')
         ax.margins(x=0)
         if plot_all_coll:
             ax.legend(fontsize = 'small')
+        if edf_log_plot:
+            ax.set_yscale('log')
 
         if return_fig:
             return fig, ax
