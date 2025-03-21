@@ -82,7 +82,7 @@ class CapacitiveDischargeExample(object):
     SEE_energy      = 1.0                               # Energy of emitted secondaries [eV]
 
     # Total simulation time in seconds
-    total_time = convergence_time + num_diag_steps * (diag_time + evolve_time)
+    total_time = convergence_time + (num_diag_steps - 1) * (diag_time + evolve_time) + diag_time
 
     bonus_steps        = 4                              # Number of extra steps to run after the last diagnostic ends (to ensure everything is saved)
 

@@ -69,7 +69,7 @@ class CapacitiveDischargeExample(object):
     path_to_checkpoint = 'checkpoints/chkpt00000000'    # Path to desired checkpoint directory ending with the step number
 
     # Total simulation time in seconds
-    total_time = convergence_time + num_diag_steps * (diag_time + evolve_time)
+    total_time = convergence_time + (num_diag_steps - 1) * (diag_time + evolve_time) + diag_time
 
     bonus_steps        = 4                              # Number of extra steps to run after the last diagnostic ends (to ensure everything is saved)
 
