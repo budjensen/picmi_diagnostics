@@ -2214,7 +2214,7 @@ class Analysis:
             self.load_time_averaged('phi')
             self.ta_data[field] = {}
             for coll in self.ta_data['phi']:
-                self.ta_data[field][coll] = -np.gradient(self.in_data['phi'][coll], self.dz)
+                self.ta_data[field][coll] = -np.gradient(self.ta_data['phi'][coll], self.dz)
             # Check if the field is already in self.ta_fields before adding
             if field not in self.ta_fields:
                 self.ta_fields.append(field)
