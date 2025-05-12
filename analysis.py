@@ -732,9 +732,17 @@ class Analysis:
             if isinstance(self.avg_iedf_data[species], dict):
                 self.normalized_iedfs[species] = {}
                 for wall in self.avg_iedf_data[species]:
-                    self.normalized_iedfs[species][wall] = self.avg_iedf_data[species][wall] / np.trapz(self.avg_iedf_data[species][wall], self.ieadf_energy[species])
+                    integral = np.trapezoid(self.avg_iedf_data[species][wall], self.ieadf_energy[species])
+                    if integral > 0:
+                        self.normalized_iedfs[species][wall] = self.avg_iedf_data[species][wall] / integral
+                    else:
+                        self.normalized_iedfs[species][wall] = np.zeros_like(self.avg_iedf_data[species][wall])
             else:
-                self.normalized_iedfs[species] = self.avg_iedf_data[species] / np.trapz(self.avg_iedf_data[species], self.ieadf_energy[species])
+                integral = np.trapezoid(self.avg_iedf_data[species], self.ieadf_energy[species])
+                if integral > 0:
+                    self.normalized_iedfs[species] = self.avg_iedf_data[species] / integral
+                else:
+                    self.normalized_iedfs[species] = np.zeros_like(self.avg_iedf_data[species])
 
         return self.normalized_iedfs
 
