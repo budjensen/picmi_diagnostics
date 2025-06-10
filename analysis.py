@@ -282,21 +282,46 @@ class Analysis:
                 for collection in self.ta_colls:
                     self.ta_data[field][collection] = []
 
+        if self.in_bool or self.tr_bool or self.ta_bool:
+            self.cells = np.load(f'{self.directory}/cells.npy')
+            self.nodes = np.load(f'{self.directory}/nodes.npy')
+
         # Collect energy distribution function bins for normal edfs, if they exist
         edf_fields = ['EEdf', 'IEdf']
         if any(hasattr(self, attr) and any(field.startswith(edf) for field in getattr(self, attr)) for attr in ['ta_fields', 'tr_fields', 'in_fields'] for edf in edf_fields):
-            self.edf_energy = {}
             if not quiet_startup:
                 print('Energy distribution function data found')
+            # Get the boundaries of the edf collection region from the diagnostic_times.dat file
+            self.edf_box_boundaries = []
+            with open(f'{self.directory}/diagnostic_times.dat', 'r') as f:
+                # First loop: find the line with the marker
+                for line in f:
+                    if 'EDF Boundaries [m]:' in line:
+                        # Remove 'EDF Boundaries [m]:' and extract data
+                        data_part = line.split(':')[-1]
+                        self.edf_box_boundaries.append(np.array(data_part.strip().strip('[]').split(), dtype=float))
+                        break  # Exit this loop once the marker line is processed
+                # Second loop: read subsequent lines until an empty line or EOF
+                for line in f: # Continues from where the previous loop left off
+                    if line.strip() == '': # Check for an empty line
+                        break # Stop if an empty line is found
+                    self.edf_box_boundaries.append(np.array(line.strip().strip('[]').split(), dtype=float))
+                self.edf_box_boundaries = np.concatenate(self.edf_box_boundaries)
+
+            # Determine indices for all boundaries including domain edges
+            self.edf_cell_indices = np.r_[0, np.searchsorted(self.nodes, self.edf_box_boundaries, side='left'), len(self.nodes)-1]
+            # Append a boundary at zero and at the end of the domain
+            self.edf_box_boundaries = np.concatenate(([0], self.edf_box_boundaries, [self.nodes[-1]]))
+            if not quiet_startup:
+                print(f' - Edfs collected in {len(self.edf_box_boundaries) - 1} regions')
+            self.edf_box_midpoints = (self.edf_box_boundaries[:-1] + self.edf_box_boundaries[1:]) / 2
+
+            self.edf_energy = {}
             for edf in edf_fields:
                 if any(hasattr(self, attr) and any(field.startswith(edf) for field in getattr(self, attr)) for attr in ['ta_fields', 'tr_fields', 'in_fields']):
                     self.edf_energy[edf] = np.load(f'{self.directory}/{edf.lower()}_bins_eV.npy')
                     if not quiet_startup:
                         print(f' - {edf} energy bins collected')
-
-        if self.in_bool or self.tr_bool or self.ta_bool:
-            self.cells = np.load(f'{self.directory}/cells.npy')
-            self.nodes = np.load(f'{self.directory}/nodes.npy')
 
     def load_Riz_data_lists(self, species: str = None):
         '''
