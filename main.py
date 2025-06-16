@@ -1019,6 +1019,8 @@ class Diagnostics1D:
         self.ta_N_i = np.zeros(self.nz + 1)
         self.ta_W_e = np.zeros(self.nz + 1)
         self.ta_W_i = np.zeros(self.nz + 1)
+        self.ta_W_e_collection_mask = np.zeros(self.nz + 1)
+        self.ta_W_i_collection_mask = np.zeros(self.nz + 1)
         self.ta_E_z = np.zeros(self.nz)
         self.ta_phi = np.zeros(self.nz + 1)
         self.ta_Jze = np.zeros(self.nz + 1)
@@ -1037,6 +1039,8 @@ class Diagnostics1D:
         self.in_N_i = np.zeros((len(self.in_slices), self.nz + 1))
         self.in_W_e = np.zeros((len(self.in_slices), self.nz + 1))
         self.in_W_i = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_W_e_collection_mask = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_W_i_collection_mask = np.zeros((len(self.in_slices), self.nz + 1))
         self.in_E_z = np.zeros((len(self.in_slices), self.nz))
         self.in_phi = np.zeros((len(self.in_slices), self.nz + 1))
         self.in_Jze = np.zeros((len(self.in_slices), self.nz + 1))
@@ -1063,9 +1067,12 @@ class Diagnostics1D:
         self.N = np.stack(self.N)
 
         self.W = []
+        self.W_collection_mask = []
         for i in range(len(self.species_names)):
             self.W.append(np.zeros(self.nz + 1))
+            self.W_collection_mask.append(np.zeros(self.nz + 1))
         self.W = np.stack(self.W)
+        self.W_collection_mask = np.stack(self.W_collection_mask)
 
         self.J = []
         for i in range(len(self.species_names)):
@@ -1608,6 +1615,9 @@ class Diagnostics1D:
 
         # Report the temperature
         self.W[idx] = W_data
+
+        # Get a truth value for whether the species is in a particular cell
+        self.W_collection_mask[idx] = (w_data != 0).astype(float)
 
     def update_Jz(self, species):
         '''
@@ -2313,8 +2323,10 @@ class Diagnostics1D:
                 self.ta_N_i += self.N[1]
             if temp_settings['W_e']:
                 self.ta_W_e += self.W[0]
+                self.ta_W_e_collection_mask += self.W_collection_mask[0]
             if temp_settings['W_i']:
                 self.ta_W_i += self.W[1]
+                self.ta_W_i_collection_mask += self.W_collection_mask[1]
             if temp_settings['E_z']:
                 self.ta_E_z += self.E
             if temp_settings['phi']:
@@ -2360,8 +2372,10 @@ class Diagnostics1D:
                 self.in_N_i[interval_idx] += self.N[1]
             if temp_settings['W_e']:
                 self.in_W_e[interval_idx] += self.W[0]
+                self.in_W_e_collection_mask[interval_idx] += self.W_collection_mask[0]
             if temp_settings['W_i']:
                 self.in_W_i[interval_idx] += self.W[1]
+                self.in_W_i_collection_mask[interval_idx] += self.W_collection_mask[1]
             if temp_settings['E_z']:
                 self.in_E_z[interval_idx] += self.E
             if temp_settings['phi']:
@@ -2551,6 +2565,8 @@ class Diagnostics1D:
         self.ta_N_i = np.zeros(self.nz + 1)
         self.ta_W_e = np.zeros(self.nz + 1)
         self.ta_W_i = np.zeros(self.nz + 1)
+        self.ta_W_e_collection_mask = np.zeros(self.nz + 1)
+        self.ta_W_i_collection_mask = np.zeros(self.nz + 1)
         self.ta_E_z = np.zeros(self.nz)
         self.ta_phi = np.zeros(self.nz + 1)
         self.ta_Jze = np.zeros(self.nz + 1)
@@ -2569,6 +2585,8 @@ class Diagnostics1D:
         self.in_N_i = np.zeros((len(self.in_slices), self.nz + 1))
         self.in_W_e = np.zeros((len(self.in_slices), self.nz + 1))
         self.in_W_i = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_W_e_collection_mask = np.zeros((len(self.in_slices), self.nz + 1))
+        self.in_W_i_collection_mask = np.zeros((len(self.in_slices), self.nz + 1))
         self.in_E_z = np.zeros((len(self.in_slices), self.nz))
         self.in_phi = np.zeros((len(self.in_slices), self.nz + 1))
         self.in_Jze = np.zeros((len(self.in_slices), self.nz + 1))
@@ -2681,10 +2699,14 @@ class Diagnostics1D:
                 # self.ta_N_i /= self.charge_by_name[species[1]]
             if active['W_e']:
                 v2_factor = self.mass_by_name[species[0]] / 2.0 / constants.q_e
-                self.ta_W_e *= v2_factor / collections
+                self.ta_W_e = np.divide(self.ta_W_e * v2_factor, self.ta_W_e_collection_mask,
+                                        out=np.zeros_like(self.ta_W_e),
+                                        where=self.ta_W_e_collection_mask!=0)
             if active['W_i']:
                 v2_factor = self.mass_by_name[species[1]] / 2.0 / constants.q_e
-                self.ta_W_i *= v2_factor / collections
+                self.ta_W_i = np.divide(self.ta_W_i * v2_factor, self.ta_W_i_collection_mask,
+                                        out=np.zeros_like(self.ta_W_i),
+                                        where=self.ta_W_i_collection_mask!=0)
             if active['E_z']:
                 self.ta_E_z /= collections
             if active['phi']:
@@ -2737,13 +2759,17 @@ class Diagnostics1D:
                 for ii in range(len(self.in_slices)):
                     if len(self.in_coll_steps[self.curr_diag_output]) == 0:
                         continue
-                    self.in_W_e[ii] *= v2_factor / len(self.in_coll_steps[self.curr_diag_output])
+                    self.ta_W_e[ii] = np.divide(self.ta_W_e[ii] * v2_factor, self.in_W_e_collection_mask[ii],
+                                                out=np.zeros_like(self.ta_W_e[ii]),
+                                                where=self.in_W_e_collection_mask[ii]!=0)
             if active['W_i']:
                 v2_factor = self.mass_by_name[species[1]] / 2.0 / constants.q_e
                 for ii in range(len(self.in_slices)):
                     if len(self.in_coll_steps[self.curr_diag_output]) == 0:
                         continue
-                    self.in_W_i[ii] *= v2_factor / len(self.in_coll_steps[self.curr_diag_output])
+                    self.ta_W_i[ii] = np.divide(self.ta_W_i[ii] * v2_factor, self.in_W_i_collection_mask[ii],
+                                                out=np.zeros_like(self.ta_W_i[ii]),
+                                                where=self.in_W_i_collection_mask[ii]!=0)
             if active['E_z']:
                 for ii in range(len(self.in_slices)):
                     if len(self.in_coll_steps[self.curr_diag_output]) == 0:
