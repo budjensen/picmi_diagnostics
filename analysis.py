@@ -309,12 +309,16 @@ class Analysis:
                 self.edf_box_boundaries = np.concatenate(self.edf_box_boundaries)
 
             # Determine indices for all boundaries including domain edges
-            self.edf_cell_indices = np.r_[0, np.searchsorted(self.nodes, self.edf_box_boundaries, side='left'), len(self.nodes)-1]
+            # Find node indices corresponding to each EDF boundary position
+            self.edf_boundary_node_indices = np.r_[0, np.searchsorted(self.nodes, self.edf_box_boundaries, side='left'), len(self.nodes)-1]
             # Append a boundary at zero and at the end of the domain
             self.edf_box_boundaries = np.concatenate(([0], self.edf_box_boundaries, [self.nodes[-1]]))
             if not quiet_startup:
                 print(f' - Edfs collected in {len(self.edf_box_boundaries) - 1} regions')
+            # Calculate the midpoints of each EDF box
             self.edf_box_midpoints = (self.edf_box_boundaries[:-1] + self.edf_box_boundaries[1:]) / 2
+            # Find node indices corresponding to the midpoints of each EDF box
+            self.edf_midpoint_node_indices = np.searchsorted(self.nodes, self.edf_box_midpoints, side='left')
 
             self.edf_energy = {}
             for edf in edf_fields:
