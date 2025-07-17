@@ -2380,17 +2380,36 @@ class Analysis:
                         alpha = 0.4,
                         color = self._color_chooser(coll, num, cmap=cmap))
 
+        if not return_fig and not plot_all_coll:
+            # Determine a unique linestyle
+            num_lines = len([line for line in ax.lines if line.get_label().startswith('Average')])
+            styles = ['solid', 'dotted', 'dashdot', 'dashed']
+            avg_linestyle = styles[num_lines % len(styles)]
+
+            avg_label = f'Average ({num_lines + 1})'
+            add_legend = True
+
+            # Rename the first line to 'Average (1)', if needed
+            for line in ax.lines:
+                if line.get_label() == 'Average':
+                    line.set_label('Average (1)')
+                    break
+        else:
+            avg_linestyle = 'solid'
+            avg_label = 'Average'
+            add_legend = False
+
         if edf_log_plot:
             ax.plot(x, self.avg_ta_data[field] / self.edf_energy[edf_type] ** (0.5),
-                    label='Average', color = 'black')
+                    label=avg_label, color = 'black', linewidth=2, linestyle=avg_linestyle)
         else:
             ax.plot(x, self.avg_ta_data[field],
-                    label='Average', color = 'black')
+                    label=avg_label, color = 'black', linewidth=2, linestyle=avg_linestyle)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(f'{field}')
         ax.set_title(f'Time averaged {field}')
         ax.margins(x=0)
-        if plot_all_coll:
+        if plot_all_coll or add_legend:
             ax.legend(fontsize = 'small')
         if edf_log_plot:
             ax.set_yscale('log')
