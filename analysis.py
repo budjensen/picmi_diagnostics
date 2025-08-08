@@ -2291,8 +2291,21 @@ class Analysis:
                 self.avg_ta_data = {}
             self.avg_ta_data[field] = np.mean([self.ta_data[field][coll] for coll in self.ta_data[field]], axis=0)
         else:
+            # When no field is specified, refresh ta_fields to include all available files
+            # This ensures we capture any fields that might have been missed during initialization
+            all_available_fields = [file.split('.')[0] for file in os.listdir(self.ta_colls[1]) if file.endswith('.npy')]
+            all_available_fields.sort()
+
+            # Update ta_fields and ta_data structure for any new fields
+            for fld in all_available_fields:
+                if fld not in self.ta_fields:
+                    self.ta_fields.append(fld)
+                    self.ta_data[fld] = {}
+                    for collection in self.ta_colls:
+                        self.ta_data[fld][collection] = []
+
             self.avg_ta_data = {}
-            for fld in self.ta_fields:
+            for fld in all_available_fields:
                 if any([len(self.ta_data[fld][key]) == 0 for key in self.ta_data[fld]]):
                     self.load_time_averaged(fld)
                 self.avg_ta_data[fld] = np.mean([self.ta_data[fld][coll] for coll in self.ta_data[fld]], axis=0)
@@ -2418,6 +2431,451 @@ class Analysis:
             return fig, ax
         else:
             return ax
+
+    def calculate_time_averaged_rates(self):
+        ''''''
+        pass
+
+    def _import_cross_sections(self):
+        '''Import references to the cross section files from warpx_used_inputs file in the diagnostics directory'''
+        warpx_inputs_file = os.path.join(self.directory, 'warpx_used_inputs')
+        if not os.path.exists(warpx_inputs_file):
+            raise FileNotFoundError(f"warpx_used_inputs file not found in {self.directory}")
+
+        # Dictionary to store cross section data
+        self.cross_section_dict = {}
+
+        # Parse the warpx_used_inputs file
+        with open(warpx_inputs_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                # Look for cross section entries
+                if '_cross_section' in line and '=' in line:
+                    parts = line.split('=', 1)
+                    if len(parts) == 2:
+                        process_key = parts[0].strip()
+                        file_path = parts[1].strip()
+
+                        # Extract the process name from the filename, not the key
+                        # e.g., "/path/to/e_momentumTransfer.dat" -> "e_momentumTransfer"
+                        if '.' in process_key:
+                            warpx_process_name = process_key.split('.')[-1].replace('_cross_section', '')
+
+                            # Load the cross section data
+                            try:
+                                data = np.loadtxt(file_path)
+                                energy = data[:, 0]  # Energy in eV
+                                cross_section = data[:, 1]  # Cross section in m²
+
+                                # Extract filename without path and extension for naming
+                                filename = os.path.basename(file_path)
+                                if filename.endswith('.dat'):
+                                    filename = filename[:-4]
+
+                                self.cross_section_dict[filename] = {
+                                    'energy': energy,
+                                    'cross_section': cross_section,
+                                    'warpx_process_type': warpx_process_name,
+                                    'file_path': file_path
+                                }
+                            except Exception as e:
+                                print(f"Warning: Could not load cross section file {file_path}: {e}")
+
+        print(f"Loaded {len(self.cross_section_dict)} cross section files:")
+        for name in self.cross_section_dict.keys():
+            print(f"  - {name}")
+
+    def _get_velocity_from_energy(self, energy):
+        """Convert energy in eV to velocity in m/s."""
+        # Energy in eV to Joules
+        energy_joules = energy * 1.60218e-19  # 1 eV = 1.60218e-19 J
+        # v = sqrt(2 * E / m), where m is the mass of an electron in kg
+        m_electron = 9.10938e-31  # kg
+        velocity = np.sqrt(2 * energy_joules / m_electron)
+        return velocity
+
+    def _interpolate_and_extrapolate_cross_section(self, eedf_energy, cross_section_energy, cross_section_data):
+        """
+        Interpolate cross section data to match the energy bins.
+        Uses np.interp with default extrapolation (constant values at boundaries).
+        """
+        return np.interp(eedf_energy, cross_section_energy, cross_section_data)
+
+    def _normalize_eedf(self, eedf_data, dE):
+        """Normalize EEDF data to ensure the integral over energy is 1."""
+        eedf_data_normalized = []
+        for eedf in eedf_data:
+            integral = np.sum(eedf * dE)
+            if integral > 0:
+                eedf_normalized = eedf / integral
+            else:
+                raise ValueError("Integral of EEDF is zero, cannot normalize.")
+            eedf_data_normalized.append(eedf_normalized)
+        return np.stack(eedf_data_normalized)
+
+    def calculate_reaction_rate_coefficients(self, verbose=False):
+        """
+        Calculate reaction rate coefficients from EEDFs and cross sections.
+
+        Returns
+        -------
+        dict
+            Dictionary with reaction names as keys and rate coefficients as values
+        """
+        # Check if EEDFs are available
+        if not hasattr(self, 'edf_energy') or 'EEdf' not in self.edf_energy:
+            raise ValueError("EEDFs not found. Make sure EEDFs are available in the diagnostics.")
+
+        # Import cross sections if not already done
+        if not hasattr(self, 'cross_section_dict'):
+            self._import_cross_sections()
+
+        # Get time-averaged EEDF data
+        self.avg_time_averaged()
+
+        # Get EEDF fields and sort them numerically
+        eedf_fields = [field for field in self.avg_ta_data.keys() if field.startswith('EEdf')]
+        # Sort numerically by the box number to ensure proper spatial ordering
+        eedf_fields.sort(key=lambda x: int(x.split('_')[1]) if '_' in x else 0)
+        if not eedf_fields:
+            raise ValueError("No EEDF data found in time-averaged diagnostics.")
+
+        # Energy bins and spacing
+        energy_bins = self.edf_energy['EEdf']
+        dE = np.diff(energy_bins)[0]  # Assuming uniform spacing
+
+        # Initialize rate coefficient storage
+        self.rate_coefficients = {}  # k values (m³/s)
+        self.reaction_rates = {}     # k×N_e values (1/s)
+
+        # Get electron density data if available
+        electron_density = None
+        if 'N_e' in self.avg_ta_data:
+            electron_density = self.avg_ta_data['N_e']
+
+        # Calculate rate coefficients for each reaction
+        for reaction_name, cross_section_info in self.cross_section_dict.items():
+            cross_section_energy = cross_section_info['energy']
+            cross_section_data = cross_section_info['cross_section']
+
+            if verbose:
+                print(f"Calculating rate coefficients for {reaction_name}...")
+
+            # Initialize arrays for rate coefficients across all EEDF regions
+            rate_coeffs_by_region = []
+
+            # Process each EEDF field (spatial region)
+            for field in eedf_fields:
+                eedf_data = self.avg_ta_data[field]
+
+                # Normalize EEDF
+                integral = np.sum(eedf_data * dE)
+                if integral > 0:
+                    eedf_normalized = eedf_data / integral
+                else:
+                    eedf_normalized = np.zeros_like(eedf_data)
+
+                # Interpolate cross sections to EEDF energy grid
+                interpolated_cross_section = self._interpolate_and_extrapolate_cross_section(
+                    energy_bins, cross_section_energy, cross_section_data)
+
+                # Calculate velocities
+                velocities = self._get_velocity_from_energy(energy_bins)
+
+                # Calculate rate coefficient: k = ∫ σ(E) * v(E) * EEDF(E) * dE
+                rate_coefficient = np.sum(interpolated_cross_section * velocities * eedf_normalized * dE)
+                rate_coeffs_by_region.append(rate_coefficient)
+
+            # Store rate coefficients (k values)
+            self.rate_coefficients[reaction_name] = np.array(rate_coeffs_by_region)
+
+            # Calculate reaction rates (k×N_e) if electron density is available
+            if electron_density is not None:
+                # Interpolate electron density to EDF box positions
+                if len(electron_density) == len(self.cells):
+                    # Electron density is on cells, need to average over EDF boxes
+                    reaction_rates_by_region = []
+                    for i in range(len(self.edf_box_boundaries) - 1):
+                        # Find cell indices for this EDF box
+                        start_idx = self.edf_boundary_node_indices[i]
+                        end_idx = self.edf_boundary_node_indices[i + 1]
+                        # Average electron density in this region
+                        avg_density = np.mean(electron_density[start_idx:end_idx])
+                        reaction_rate = rate_coeffs_by_region[i] * avg_density
+                        reaction_rates_by_region.append(reaction_rate)
+                    self.reaction_rates[reaction_name] = np.array(reaction_rates_by_region)
+                elif len(electron_density) == len(self.nodes):
+                    # Electron density is on nodes, need to average over EDF boxes
+                    reaction_rates_by_region = []
+                    for i in range(len(self.edf_box_boundaries) - 1):
+                        # Find node indices for this EDF box
+                        start_idx = self.edf_boundary_node_indices[i]
+                        end_idx = self.edf_boundary_node_indices[i + 1]
+                        # Average electron density in this region
+                        avg_density = np.mean(electron_density[start_idx:end_idx])
+                        reaction_rate = rate_coeffs_by_region[i] * avg_density
+                        reaction_rates_by_region.append(reaction_rate)
+                    self.reaction_rates[reaction_name] = np.array(reaction_rates_by_region)
+                elif len(electron_density) == len(rate_coeffs_by_region):
+                    # Direct multiplication if dimensions match (electron density already per EDF box)
+                    self.reaction_rates[reaction_name] = self.rate_coefficients[reaction_name] * electron_density
+                else:
+                    # Try to interpolate electron density to EDF box positions
+                    print(f"Warning: Electron density shape {electron_density.shape} doesn't match expected shapes. Skipping reaction rates.")
+                    break
+
+        if verbose:
+            print(f"Calculated rate coefficients for {len(self.rate_coefficients)} reactions")
+            print(f"Reactions: {list(self.rate_coefficients.keys())}")
+
+        return self.rate_coefficients
+
+    def plot_rate_coefficients(self, reaction_name=None, ax=None, dpi=150, **kwargs):
+        """
+        Plot reaction rate coefficients vs position.
+
+        Parameters
+        ----------
+        reaction_name : str, optional
+            Name of the reaction to plot. If None, plots all reactions on separate subplots.
+        ax : matplotlib.axes.Axes, optional
+            Axes object to plot on. If None, creates a new figure.
+        dpi : int
+            DPI for the figure.
+        **kwargs
+            Additional keyword arguments passed to the plot function.
+
+        Returns
+        -------
+        fig, ax : matplotlib objects
+            Figure and axes objects.
+        """
+        if not hasattr(self, 'rate_coefficients'):
+            raise ValueError("Rate coefficients not calculated. Run calculate_reaction_rate_coefficients() first.")
+
+        # Get positions for EDF boxes (midpoints)
+        if hasattr(self, 'edf_box_boundaries'):
+            positions = []
+            for i in range(len(self.edf_box_boundaries) - 1):
+                mid_pos = (self.edf_box_boundaries[i] + self.edf_box_boundaries[i + 1]) / 2
+                positions.append(mid_pos)
+            positions = np.array(positions) * 1000  # Convert to mm
+        else:
+            positions = np.arange(len(list(self.rate_coefficients.values())[0]))
+
+        return_fig = False
+        if ax is None:
+            return_fig = True
+            if reaction_name is None:
+                # Create subplots for all reactions
+                n_reactions = len(self.rate_coefficients)
+                ncols = min(3, n_reactions)
+                nrows = (n_reactions + ncols - 1) // ncols
+                fig, axes = plt.subplots(nrows, ncols, figsize=(5*ncols, 4*nrows), dpi=dpi)
+                if n_reactions == 1:
+                    axes = [axes]
+                elif nrows == 1:
+                    axes = axes.flatten()
+                else:
+                    axes = axes.flatten()
+
+                for i, (name, coeffs) in enumerate(self.rate_coefficients.items()):
+                    if i < len(axes):
+                        axes[i].plot(positions, coeffs, **kwargs)
+                        axes[i].set_title(name)
+                        axes[i].set_xlabel('Position [mm]')
+                        axes[i].set_ylabel('Rate Coefficient [m³/s]')
+                        axes[i].grid(True, alpha=0.3)
+                        axes[i].margins(x=0)
+
+                # Hide unused subplots
+                for i in range(n_reactions, len(axes)):
+                    axes[i].set_visible(False)
+
+                plt.tight_layout()
+                return fig, axes
+            else:
+                fig, ax = plt.subplots(1, 1, figsize=(8, 6), dpi=dpi)
+
+        # Plot single reaction
+        if reaction_name is None:
+            reaction_name = list(self.rate_coefficients.keys())[0]
+
+        if reaction_name not in self.rate_coefficients:
+            raise ValueError(f"Reaction '{reaction_name}' not found. Available reactions: {list(self.rate_coefficients.keys())}")
+
+        coeffs = self.rate_coefficients[reaction_name]
+        ax.plot(positions, coeffs, **kwargs)
+        ax.set_title(f'Rate Coefficient: {reaction_name}')
+        ax.set_xlabel('Position [mm]')
+        ax.set_ylabel('Rate Coefficient [m³/s]')
+        ax.grid(True, alpha=0.3)
+        ax.margins(x=0)
+
+        if return_fig:
+            return fig, ax
+        else:
+            return ax
+
+    def plot_reaction_rates(self, reaction_name=None, ax=None, dpi=150, **kwargs):
+        """
+        Plot reaction rates vs position.
+
+        Parameters
+        ----------
+        reaction_name : str, optional
+            Name of the reaction to plot. If None, plots all reactions on separate subplots.
+        ax : matplotlib.axes.Axes, optional
+            Axes object to plot on. If None, creates a new figure.
+        dpi : int
+            DPI for the figure.
+        **kwargs
+            Additional keyword arguments passed to the plot function.
+
+        Returns
+        -------
+        fig, ax : matplotlib objects
+            Figure and axes objects.
+        """
+        if not hasattr(self, 'reaction_rates'):
+            raise ValueError("Reaction rates not calculated. Run calculate_reaction_rate_coefficients() first.")
+
+        if len(self.reaction_rates) == 0:
+            raise ValueError("No reaction rates calculated. Electron density may not be available.")
+
+        # Get positions for EDF boxes (midpoints)
+        if hasattr(self, 'edf_box_boundaries'):
+            positions = []
+            for i in range(len(self.edf_box_boundaries) - 1):
+                mid_pos = (self.edf_box_boundaries[i] + self.edf_box_boundaries[i + 1]) / 2
+                positions.append(mid_pos)
+            positions = np.array(positions) * 1000  # Convert to mm
+        else:
+            positions = np.arange(len(list(self.reaction_rates.values())[0]))
+
+        return_fig = False
+        if ax is None:
+            return_fig = True
+            if reaction_name is None:
+                # Create subplots for all reactions
+                n_reactions = len(self.reaction_rates)
+                ncols = min(3, n_reactions)
+                nrows = (n_reactions + ncols - 1) // ncols
+                fig, axes = plt.subplots(nrows, ncols, figsize=(5*ncols, 4*nrows), dpi=dpi)
+                if n_reactions == 1:
+                    axes = [axes]
+                elif nrows == 1:
+                    axes = axes.flatten()
+                else:
+                    axes = axes.flatten()
+
+                for i, (name, rates) in enumerate(self.reaction_rates.items()):
+                    if i < len(axes):
+                        axes[i].plot(positions, rates, **kwargs)
+                        axes[i].set_title(name)
+                        axes[i].set_xlabel('Position [mm]')
+                        axes[i].set_ylabel('Reaction Rate [1/s]')
+                        axes[i].grid(True, alpha=0.3)
+                        axes[i].margins(x=0)
+
+                # Hide unused subplots
+                for i in range(n_reactions, len(axes)):
+                    axes[i].set_visible(False)
+
+                plt.tight_layout()
+                return fig, axes
+            else:
+                fig, ax = plt.subplots(1, 1, figsize=(8, 6), dpi=dpi)
+
+        # Plot single reaction
+        if reaction_name is None:
+            reaction_name = list(self.reaction_rates.keys())[0]
+
+        if reaction_name not in self.reaction_rates:
+            raise ValueError(f"Reaction '{reaction_name}' not found. Available reactions: {list(self.reaction_rates.keys())}")
+
+        rates = self.reaction_rates[reaction_name]
+        ax.plot(positions, rates, **kwargs)
+        ax.set_title(f'Reaction Rate: {reaction_name}')
+        ax.set_xlabel('Position [mm]')
+        ax.set_ylabel('Reaction Rate [1/s]')
+        ax.grid(True, alpha=0.3)
+        ax.margins(x=0)
+
+        if return_fig:
+            return fig, ax
+        else:
+            return ax
+
+    def get_available_reactions(self):
+        """
+        Get list of available reactions.
+
+        Returns
+        -------
+        list
+            List of reaction names.
+        """
+        if hasattr(self, 'cross_section_dict'):
+            return list(self.cross_section_dict.keys())
+        else:
+            self._import_cross_sections()
+            return list(self.cross_section_dict.keys())
+
+    def get_edf_box_positions(self):
+        """
+        Get the midpoint positions of EDF boxes.
+
+        Returns
+        -------
+        np.ndarray
+            Array of EDF box midpoint positions in meters.
+        """
+        if hasattr(self, 'edf_box_boundaries'):
+            positions = []
+            for i in range(len(self.edf_box_boundaries) - 1):
+                mid_pos = (self.edf_box_boundaries[i] + self.edf_box_boundaries[i + 1]) / 2
+                positions.append(mid_pos)
+            return np.array(positions)
+        else:
+            raise ValueError("EDF box boundaries not found.")
+
+    def get_rate_coefficient_summary(self):
+        """
+        Print a summary of calculated rate coefficients.
+        """
+        if not hasattr(self, 'rate_coefficients'):
+            print("No rate coefficients calculated. Run calculate_reaction_rate_coefficients() first.")
+            return
+
+        print("Rate Coefficient Summary:")
+        print("=" * 50)
+
+        for reaction_name, coeffs in self.rate_coefficients.items():
+            mean_coeff = np.mean(coeffs)
+            max_coeff = np.max(coeffs)
+            min_coeff = np.min(coeffs)
+
+            print(f"{reaction_name}:")
+            print(f"  Mean: {mean_coeff:.2e} m³/s")
+            print(f"  Max:  {max_coeff:.2e} m³/s")
+            print(f"  Min:  {min_coeff:.2e} m³/s")
+            print()
+
+        if hasattr(self, 'reaction_rates') and len(self.reaction_rates) > 0:
+            print("Reaction Rate Summary:")
+            print("=" * 50)
+
+            for reaction_name, rates in self.reaction_rates.items():
+                mean_rate = np.mean(rates)
+                max_rate = np.max(rates)
+                min_rate = np.min(rates)
+
+                print(f"{reaction_name}:")
+                print(f"  Mean: {mean_rate:.2e} 1/s")
+                print(f"  Max:  {max_rate:.2e} 1/s")
+                print(f"  Min:  {min_rate:.2e} 1/s")
+                print()
 
     def _color_chooser(self, idx, num_colors, cmap='GnBu'):
         '''
