@@ -43,10 +43,17 @@ class CapacitiveDischargeExample(object):
     lambda_De       = np.sqrt(constants.ep0 * constants.kb * 2 * elec_temp / (2 * plasma_density * constants.q_e**2))
     omega_p         = np.sqrt(2 * plasma_density * constants.q_e**2 / (constants.ep0 * constants.m_e))
 
-    dz              = lambda_De / 2                     # Cell size
-    nz              = int(zmax / dz)                     # Number of cells
+    dz              = lambda_De / 2                     # Approximate cell size
+    nz              = int(zmax / dz)                    # Number of cells
+    dz              = zmax / nz                         # True cell size [m]
 
     dt              = 1.0 / (5 * omega_p)               # [s]
+
+    max_electron_velocity = np.sqrt(2 * 50 * constants.q_e / constants.m_e) # [m/s]
+    # If the time step is too large, the electron will go through the grid
+    # Fix this by changing the time step to be the grid size divided by the maximum electron velocity
+    if dz < max_electron_velocity * dt:
+        dt = dz / max_electron_velocity
 
     convergence_time = 5 / freq                         # Convergence time
     evolve_time = 0.0# / freq                           # Time to evolve between diagnostic evaluations

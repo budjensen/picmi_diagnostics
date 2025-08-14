@@ -40,8 +40,9 @@ class CapacitiveDischargeExample(object):
     lambda_De       = np.sqrt(constants.ep0 * constants.kb * 2 * elec_temp / (2 * plasma_density * constants.q_e**2))
     omega_p         = np.sqrt(2 * plasma_density * constants.q_e**2 / (constants.ep0 * constants.m_e))
 
-    dz              = zmax/128                           # Cell size
+    dz              = zmax/128                           # Approximate cell size
     nz              = int(zmax / dz)                     # Number of cells
+    dz              = zmax / nz                          # True cell size [m]
 
     dt              = 1/(400*freq)                      # [s]
 
