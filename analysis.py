@@ -15,21 +15,34 @@ class Analysis:
         quiet_startup : bool, default=False
             Display the startup information
         '''
-        # Set the list of diagnostics that plot on the cells
+        self._initialize_basic_attributes()
+        self._setup_directory(directory)
+        self._load_basic_parameters()
+        self._initialize_ieadf_data(quiet_startup)
+        self._initialize_ionization_rate_data(quiet_startup)
+        self._initialize_interval_data(quiet_startup)
+        self._initialize_time_resolved_data(quiet_startup)
+        self._initialize_time_averaged_data(quiet_startup)
+        self._load_spatial_grids()
+        self._initialize_edf_data(quiet_startup)
+
+    def _initialize_basic_attributes(self):
+        '''Initialize basic boolean flags and cell diagnostics list'''
         self.cell_diags = ['E_z', 'J_d', 'CPe', 'CPi', 'IPe', 'IPi']
-
-        # Get the absolute path of the directory
-        self.directory = os.path.abspath(directory)
-        self.dir = os.listdir(directory)
-        self.dir.sort()
-
         self.ieadf_bool = False
         self.Riz_bool = False
         self.in_bool = False
         self.tr_bool = False
         self.ta_bool = False
 
-        # Open file f'{self.directory}/diagnostic_times.dat' to get the cell size and time step
+    def _setup_directory(self, directory: str):
+        '''Set up directory paths and get directory listing'''
+        self.directory = os.path.abspath(directory)
+        self.dir = os.listdir(directory)
+        self.dir.sort()
+
+    def _load_basic_parameters(self):
+        '''Load timestep and cell size from diagnostic_times.dat'''
         with open(f'{self.directory}/diagnostic_times.dat', 'r') as f:
             for line in f:
                 if line.startswith('Timestep [s]='):
@@ -41,291 +54,340 @@ class Analysis:
                     self.dz = float(line.split('=')[1])
                     break
 
-        # Check if any of the elements in self.dir start with ieadf
-        if any(dir.startswith('ieadf') for dir in self.dir):
-            if not quiet_startup:
-                print('IEADF data found')
-            self.ieadf_bool = True
+    def _initialize_ieadf_data(self, quiet_startup: bool):
+        '''Initialize Ion Energy Angular Distribution Function data'''
+        if not any(dir.startswith('ieadf') for dir in self.dir):
+            return
 
-            # Save the ieadf directories (there will be one for each ion species)
-            temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('ieadf')]
-            temp.sort()
-            self.ieadf_dir = {}
-            for species_dir in temp:
-                # Save the species name as the dictionary key and the directory as the value
-                self.ieadf_dir[species_dir.split('ieadf_')[-1]] = species_dir
-            if not quiet_startup:
-                if len(self.ieadf_dir) > 1:
-                    print(f' - {len(self.ieadf_dir)} IEADF directories found for species: {", ".join(self.ieadf_dir.keys())}')
-                else:
-                    print(f' - {len(self.ieadf_dir)} IEADF directory found for species: {", ".join(self.ieadf_dir.keys())}')
+        if not quiet_startup:
+            print('IEADF data found')
+        self.ieadf_bool = True
 
-            # Initialize the energy and degree bin dictionaries
-            self.ieadf_energy = {}
-            self.ieadf_energy_edges = {}
-            self.ieadf_deg = {}
-            self.ieadf_deg_edges = {}
+        # Save the ieadf directories (there will be one for each ion species)
+        temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('ieadf')]
+        temp.sort()
+        self.ieadf_dir = {}
+        for species_dir in temp:
+            # Save the species name as the dictionary key and the directory as the value
+            self.ieadf_dir[species_dir.split('ieadf_')[-1]] = species_dir
 
-            # Initialize the left and right wall ieadf collection dictionaries
-            self.lw_ieadf_colls = {}
-            self.rw_ieadf_colls = {}
-
-            # Initialize the ieadf data dictionary
-            self.ieadf_data_lists = {}
-
-            # Check if the ieadf directory has bins_eV.npy and bins_deg.npy
-            for key, directory in self.ieadf_dir.items():
-                if not quiet_startup:
-                    print(f' - Looking into directory for species: {key}')
-                ieadf_dir = os.listdir(directory)
-                ieadf_dir.sort()
-                if 'bins_eV.npy' in ieadf_dir:
-                    self.ieadf_energy[key] = np.load(directory + '/bins_eV.npy')
-                    # Energies are cell midpoints, and we need to get the edges for plotting with plt.pcolormesh
-                    self.ieadf_energy_edges[key] = np.zeros(self.ieadf_energy[key].size + 1)
-                    self.ieadf_energy_edges[key][0] = self.ieadf_energy[key][0] - (self.ieadf_energy[key][1] - self.ieadf_energy[key][0])/2
-                    self.ieadf_energy_edges[key][1:-1] = (self.ieadf_energy[key][1:] + self.ieadf_energy[key][:-1])/2
-                    self.ieadf_energy_edges[key][-1] = self.ieadf_energy[key][-1] + (self.ieadf_energy[key][-1] - self.ieadf_energy[key][-2])/2
-                elif not quiet_startup:
-                    print(f'   > Energy bins not found')
-                if 'bins_deg.npy' in ieadf_dir:
-                    self.ieadf_deg[key] = np.load(directory + '/bins_deg.npy')
-                    # Degrees are cell midpoints, and we need to get the edges for plotting with plt.pcolormesh
-                    self.ieadf_deg_edges[key] = np.zeros(self.ieadf_deg[key].size + 1)
-                    self.ieadf_deg_edges[key][0] = self.ieadf_deg[key][0] - (self.ieadf_deg[key][1] - self.ieadf_deg[key][0])/2
-                    self.ieadf_deg_edges[key][1:-1] = (self.ieadf_deg[key][1:] + self.ieadf_deg[key][:-1])/2
-                    self.ieadf_deg_edges[key][-1] = self.ieadf_deg[key][-1] + (self.ieadf_deg[key][-1] - self.ieadf_deg[key][-2])/2
-                elif not quiet_startup:
-                    print(f'   > Degree bins not found')
-
-                self.ieadf_data_lists[key] = {}
-                # Print collected idfs
-                if any(file.startswith('lw') for file in ieadf_dir):
-                    self.lw_ieadf_colls[key] = [f'{directory}/{file}' for file in ieadf_dir if file.startswith('lw')]
-                    self.lw_ieadf_colls[key].sort()
-                    if not quiet_startup:
-                        print(f'   > {len(self.lw_ieadf_colls[key])} left wall collections')
-                    # Initialize the left wall ieadf data dictionary
-                    self.ieadf_data_lists[key]['lw'] = []
-
-                if any(file.startswith('rw') for file in ieadf_dir):
-                    self.rw_ieadf_colls[key] = [f'{directory}/{file}' for file in ieadf_dir if file.startswith('rw')]
-                    self.rw_ieadf_colls[key].sort()
-                    if not quiet_startup:
-                        print(f'   > {len(self.rw_ieadf_colls[key])} right wall collections')
-                    # Initialize the right wall ieadf data dictionary
-                    self.ieadf_data_lists[key]['rw'] = []
-
-        # Check if any of the elements in self.dir start with r_ioniz
-        if any(dir.startswith('r_ioniz') for dir in self.dir):
-            if not quiet_startup:
-                print('Ionization rate data found')
-            self.Riz_bool = True
-
-            # Save the r_ioniz directories (there will be one for each ion species)
-            temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('r_ioniz')]
-            temp.sort()
-            self.Riz_dir = {}
-            for species_dir in temp:
-                # Save the species name as the dictionary key and the directory as the value
-                self.Riz_dir[species_dir.split('r_ioniz_')[-1]] = species_dir
-            if not quiet_startup:
-                if len(self.Riz_dir) > 1:
-                    print(f' - {len(self.Riz_dir)} Ionization rate directories found for species: {", ".join(self.Riz_dir.keys())}')
-                else:
-                    print(f' - {len(self.Riz_dir)} Ionization rate directory found for species: {", ".join(self.Riz_dir.keys())}')
-
-            # Initialize the z and time bin dictionaries
-            self.Riz_z = {}
-            self.Riz_z_edges = {}
-            self.Riz_t = {}
-            self.Riz_t_edges = {}
-
-            # Initialize the collection dictionary
-            self.Riz_colls = {}
-
-            # Initialize the data dictionary
-            self.Riz_data_lists = {}
-
-            # Check if the ieadf directory has bins_z.npy and bins_t.npy
-            for key, directory in self.Riz_dir.items():
-                if not quiet_startup:
-                    print(f' - Looking into directory for species: {key}')
-                Riz_dir = os.listdir(directory)
-                Riz_dir.sort()
-                if 'bins_z.npy' in Riz_dir:
-                    self.Riz_z[key] = np.load(directory + '/bins_z.npy')
-                    # Positions are cell midpoints, and we need to get the edges for plotting with plt.pcolormesh
-                    self.Riz_z_edges[key]       = np.zeros(self.Riz_z[key].size + 1)
-                    self.Riz_z_edges[key][0]    = self.Riz_z[key][0] - (self.Riz_z[key][1] - self.Riz_z[key][0])/2
-                    self.Riz_z_edges[key][1:-1] = (self.Riz_z[key][1:] + self.Riz_z[key][:-1])/2
-                    self.Riz_z_edges[key][-1]   = self.Riz_z[key][-1] + (self.Riz_z[key][-1] - self.Riz_z[key][-2])/2
-                elif not quiet_startup:
-                    print(f'   > Position bins not found')
-                if 'bins_t.npy' in Riz_dir:
-                    self.Riz_t[key] = np.load(directory + '/bins_t.npy')
-                    # Times are cell midpoints, and we need to get the edges for plotting with plt.pcolormesh
-                    self.Riz_t_edges[key]       = np.zeros(self.Riz_t[key].size + 1)
-                    self.Riz_t_edges[key][0]    = self.Riz_t[key][0] - (self.Riz_t[key][1] - self.Riz_t[key][0])/2
-                    self.Riz_t_edges[key][1:-1] = (self.Riz_t[key][1:] + self.Riz_t[key][:-1])/2
-                    self.Riz_t_edges[key][-1]   = self.Riz_t[key][-1] + (self.Riz_t[key][-1] - self.Riz_t[key][-2])/2
-                elif not quiet_startup:
-                    print(f'   > Time bins not found')
-
-                self.Riz_data_lists[key] = {}
-                # Print collected data
-                if any(file.startswith('Riz') for file in Riz_dir):
-                    self.Riz_colls[key] = [f'{directory}/{file}' for file in Riz_dir if file.startswith('Riz')]
-                    self.Riz_colls[key].sort()
-                    if not quiet_startup:
-                        print(f'   > {len(self.Riz_colls[key])} data collections')
-                    # Initialize the data dictionary
-                    self.Riz_data_lists[key] = []
-
-        if any(dir.startswith('interval') for dir in self.dir):
-            if not quiet_startup:
-                print('Interval data found')
-            self.in_bool = True
-            temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('interval')]
-            temp.sort()
-            self.in_colls = {}
-            for coll in temp:
-                self.in_colls[int(coll.split('/')[-1].split('_')[-1])] = coll
-            num_colls = len(self.in_colls)
-            if num_colls == 0 and not quiet_startup:
-                print(f' - {num_colls} interval collections found')
+        if not quiet_startup:
+            if len(self.ieadf_dir) > 1:
+                print(f' - {len(self.ieadf_dir)} IEADF directories found for species: {", ".join(self.ieadf_dir.keys())}')
             else:
-                # Open file f'{self.directory}/diagnostic_times.dat' to get the time intervals
-                with open(f'{self.directory}/diagnostic_times.dat', 'r') as f:
-                    for line in f:
-                        if line.startswith('Times in interval='):
-                            self.in_times = np.array([float(time) for time in line.split('=')[1].split(', ')])
-                            break
-                if not quiet_startup:
-                    print(f' - {num_colls} interval collections at {len(self.in_times)} time intervals: {", ".join([str(time) for time in self.in_times])}')
+                print(f' - {len(self.ieadf_dir)} IEADF directory found for species: {", ".join(self.ieadf_dir.keys())}')
 
-                # Print collected fields
-                self.in_fields = [file.split('.')[0] for file in os.listdir(self.in_colls[1]) if file.endswith('.npz')]
-                self.in_fields.sort()
-                if not quiet_startup:
-                    print(f' - {len(self.in_fields)} fields: {", ".join(self.in_fields)}')
+        # Initialize dictionaries
+        self.ieadf_energy = {}
+        self.ieadf_energy_edges = {}
+        self.ieadf_deg = {}
+        self.ieadf_deg_edges = {}
+        self.lw_ieadf_colls = {}
+        self.rw_ieadf_colls = {}
+        self.ieadf_data_lists = {}
 
-                # Set up dictionary to store interval data
-                self.in_data = {}
-                for field in self.in_fields:
-                    self.in_data[field] = {}
-                    for collection in self.in_colls:
-                        self.in_data[field][collection] = [0]*len(self.in_times)
+        # Process each species directory
+        for key, directory in self.ieadf_dir.items():
+            self._process_ieadf_species_directory(key, directory, quiet_startup)
 
-        if any(dir.startswith('time_resolved') for dir in self.dir):
+    def _process_ieadf_species_directory(self, species: str, directory: str, quiet_startup: bool):
+        '''Process IEADF data for a single species directory'''
+        if not quiet_startup:
+            print(f' - Looking into directory for species: {species}')
+
+        ieadf_dir = os.listdir(directory)
+        ieadf_dir.sort()
+
+        # Load energy bins and create edges
+        if 'bins_eV.npy' in ieadf_dir:
+            self.ieadf_energy[species] = np.load(directory + '/bins_eV.npy')
+            # Energies are cell midpoints, and we need to get the edges for plotting with plt.pcolormesh
+            self.ieadf_energy_edges[species] = np.zeros(self.ieadf_energy[species].size + 1)
+            self.ieadf_energy_edges[species][0] = self.ieadf_energy[species][0] - (self.ieadf_energy[species][1] - self.ieadf_energy[species][0])/2
+            self.ieadf_energy_edges[species][1:-1] = (self.ieadf_energy[species][1:] + self.ieadf_energy[species][:-1])/2
+            self.ieadf_energy_edges[species][-1] = self.ieadf_energy[species][-1] + (self.ieadf_energy[species][-1] - self.ieadf_energy[species][-2])/2
+        elif not quiet_startup:
+            print(f'   > Energy bins not found')
+
+        # Load degree bins and create edges
+        if 'bins_deg.npy' in ieadf_dir:
+            self.ieadf_deg[species] = np.load(directory + '/bins_deg.npy')
+            # Degrees are cell midpoints, and we need to get the edges for plotting with plt.pcolormesh
+            self.ieadf_deg_edges[species] = np.zeros(self.ieadf_deg[species].size + 1)
+            self.ieadf_deg_edges[species][0] = self.ieadf_deg[species][0] - (self.ieadf_deg[species][1] - self.ieadf_deg[species][0])/2
+            self.ieadf_deg_edges[species][1:-1] = (self.ieadf_deg[species][1:] + self.ieadf_deg[species][:-1])/2
+            self.ieadf_deg_edges[species][-1] = self.ieadf_deg[species][-1] + (self.ieadf_deg[species][-1] - self.ieadf_deg[species][-2])/2
+        elif not quiet_startup:
+            print(f'   > Degree bins not found')
+
+        self.ieadf_data_lists[species] = {}
+
+        # Process left wall collections
+        if any(file.startswith('lw') for file in ieadf_dir):
+            self.lw_ieadf_colls[species] = [f'{directory}/{file}' for file in ieadf_dir if file.startswith('lw')]
+            self.lw_ieadf_colls[species].sort()
             if not quiet_startup:
-                print('Time resolved data found')
-            self.tr_bool = True
-            temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('time_resolved')]
-            temp.sort()
-            self.tr_colls = {}
-            for coll in temp:
-                self.tr_colls[int(coll.split('/')[-1].split('_')[-1])] = coll
-            num_colls = len(self.tr_colls)
+                print(f'   > {len(self.lw_ieadf_colls[species])} left wall collections')
+            self.ieadf_data_lists[species]['lw'] = []
+
+        # Process right wall collections
+        if any(file.startswith('rw') for file in ieadf_dir):
+            self.rw_ieadf_colls[species] = [f'{directory}/{file}' for file in ieadf_dir if file.startswith('rw')]
+            self.rw_ieadf_colls[species].sort()
             if not quiet_startup:
-                print(f' - {num_colls} time resolved collections')
+                print(f'   > {len(self.rw_ieadf_colls[species])} right wall collections')
+            self.ieadf_data_lists[species]['rw'] = []
 
-            if num_colls > 0:
-                # Print collected fields
-                self.tr_fields = [file.split('.')[0] for file in os.listdir(self.tr_colls[1]) if file.endswith('.npy') and file != 'times.npy']
-                self.tr_fields.sort()
-                if not quiet_startup:
-                    print(f' - {len(self.tr_fields)} fields: {", ".join(self.tr_fields)}')
+    def _initialize_ionization_rate_data(self, quiet_startup: bool):
+        '''Initialize ionization rate data'''
+        if not any(dir.startswith('r_ioniz') for dir in self.dir):
+            return
 
-                # Set up dictionary to store time resolved data
-                self.tr_data = {}
-                for field in self.tr_fields:
-                    self.tr_data[field] = {}
-                    for collection in self.tr_colls:
-                        self.tr_data[field][collection] = []
-                # Set up dictionary to store times of resolved collection
-                self.tr_times = {}
-                for collection in self.tr_data[field]:
-                    self.tr_times[collection] = np.load(f'{self.tr_colls[collection]}/times.npy')
+        if not quiet_startup:
+            print('Ionization rate data found')
+        self.Riz_bool = True
 
-            # Get the interval time in case avg_time_resolved_over_collections is called
-            with open(f'{self.directory}/diagnostic_times.dat', 'r') as f:
-                for line in f:
-                    if line.startswith('Interval period [s]='):
-                        self.interval_period = float(line.split('=')[1])
-                        break
+        # Save the r_ioniz directories (there will be one for each ion species)
+        temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('r_ioniz')]
+        temp.sort()
+        self.Riz_dir = {}
+        for species_dir in temp:
+            # Save the species name as the dictionary key and the directory as the value
+            self.Riz_dir[species_dir.split('r_ioniz_')[-1]] = species_dir
+
+        if not quiet_startup:
+            if len(self.Riz_dir) > 1:
+                print(f' - {len(self.Riz_dir)} Ionization rate directories found for species: {", ".join(self.Riz_dir.keys())}')
+            else:
+                print(f' - {len(self.Riz_dir)} Ionization rate directory found for species: {", ".join(self.Riz_dir.keys())}')
+
+        # Initialize dictionaries
+        self.Riz_z = {}
+        self.Riz_z_edges = {}
+        self.Riz_t = {}
+        self.Riz_t_edges = {}
+        self.Riz_colls = {}
+        self.Riz_data_lists = {}
+
+        # Process each species directory
+        for key, directory in self.Riz_dir.items():
+            self._process_ionization_species_directory(key, directory, quiet_startup)
+
+    def _process_ionization_species_directory(self, species: str, directory: str, quiet_startup: bool):
+        '''Process ionization rate data for a single species directory'''
+        if not quiet_startup:
+            print(f' - Looking into directory for species: {species}')
+
+        Riz_dir = os.listdir(directory)
+        Riz_dir.sort()
+
+        # Load position bins and create edges
+        if 'bins_z.npy' in Riz_dir:
+            self.Riz_z[species] = np.load(directory + '/bins_z.npy')
+            # Positions are cell midpoints, and we need to get the edges for plotting with plt.pcolormesh
+            self.Riz_z_edges[species] = np.zeros(self.Riz_z[species].size + 1)
+            self.Riz_z_edges[species][0] = self.Riz_z[species][0] - (self.Riz_z[species][1] - self.Riz_z[species][0])/2
+            self.Riz_z_edges[species][1:-1] = (self.Riz_z[species][1:] + self.Riz_z[species][:-1])/2
+            self.Riz_z_edges[species][-1] = self.Riz_z[species][-1] + (self.Riz_z[species][-1] - self.Riz_z[species][-2])/2
+        elif not quiet_startup:
+            print(f'   > Position bins not found')
+
+        # Load time bins and create edges
+        if 'bins_t.npy' in Riz_dir:
+            self.Riz_t[species] = np.load(directory + '/bins_t.npy')
+            # Times are cell midpoints, and we need to get the edges for plotting with plt.pcolormesh
+            self.Riz_t_edges[species] = np.zeros(self.Riz_t[species].size + 1)
+            self.Riz_t_edges[species][0] = self.Riz_t[species][0] - (self.Riz_t[species][1] - self.Riz_t[species][0])/2
+            self.Riz_t_edges[species][1:-1] = (self.Riz_t[species][1:] + self.Riz_t[species][:-1])/2
+            self.Riz_t_edges[species][-1] = self.Riz_t[species][-1] + (self.Riz_t[species][-1] - self.Riz_t[species][-2])/2
+        elif not quiet_startup:
+            print(f'   > Time bins not found')
+
+        self.Riz_data_lists[species] = {}
+
+        # Process data collections
+        if any(file.startswith('Riz') for file in Riz_dir):
+            self.Riz_colls[species] = [f'{directory}/{file}' for file in Riz_dir if file.startswith('Riz')]
+            self.Riz_colls[species].sort()
             if not quiet_startup:
-                print(f' - Assuming an RF period of {self.interval_period:.2e} s')
+                print(f'   > {len(self.Riz_colls[species])} data collections')
+            self.Riz_data_lists[species] = []
 
-        if any(dir.startswith('time_averaged') for dir in self.dir):
+    def _initialize_interval_data(self, quiet_startup: bool):
+        '''Initialize interval data'''
+        if not any(dir.startswith('interval') for dir in self.dir):
+            return
+
+        if not quiet_startup:
+            print('Interval data found')
+        self.in_bool = True
+
+        temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('interval')]
+        temp.sort()
+        self.in_colls = {}
+        for coll in temp:
+            self.in_colls[int(coll.split('/')[-1].split('_')[-1])] = coll
+
+        num_colls = len(self.in_colls)
+        if num_colls == 0:
             if not quiet_startup:
-                print('Time averaged data found')
-            self.ta_bool = True
-            temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('time_averaged')]
-            temp.sort()
-            self.ta_colls = {}
-            for coll in temp:
-                self.ta_colls[int(coll.split('/')[-1].split('_')[-1])] = coll
-            if not quiet_startup:
-                print(f' - {len(self.ta_colls)} time averaged collections')
+                print(f' - {num_colls} interval collections found')
+            return
 
-            # Print collected fields
-            self.ta_fields = [file.split('.')[0] for file in os.listdir(self.ta_colls[1]) if file.endswith('.npy')]
-            self.ta_fields.sort()
-            if not quiet_startup:
-                print(f' - {len(self.ta_fields)} fields: {", ".join(self.ta_fields)}')
+        # Load time intervals
+        with open(f'{self.directory}/diagnostic_times.dat', 'r') as f:
+            for line in f:
+                if line.startswith('Times in interval='):
+                    self.in_times = np.array([float(time) for time in line.split('=')[1].split(', ')])
+                    break
 
-            # Set up dictionary to store time averaged data
-            self.ta_data = {}
-            for field in self.ta_fields:
-                self.ta_data[field] = {}
-                for collection in self.ta_colls:
-                    self.ta_data[field][collection] = []
+        if not quiet_startup:
+            print(f' - {num_colls} interval collections at {len(self.in_times)} time intervals: {", ".join([str(time) for time in self.in_times])}')
 
+        # Get field names
+        self.in_fields = [file.split('.')[0] for file in os.listdir(self.in_colls[1]) if file.endswith('.npz')]
+        self.in_fields.sort()
+        if not quiet_startup:
+            print(f' - {len(self.in_fields)} fields: {", ".join(self.in_fields)}')
+
+        # Set up dictionary to store interval data
+        self.in_data = {}
+        for field in self.in_fields:
+            self.in_data[field] = {}
+            for collection in self.in_colls:
+                self.in_data[field][collection] = [0]*len(self.in_times)
+
+    def _initialize_time_resolved_data(self, quiet_startup: bool):
+        '''Initialize time resolved data'''
+        if not any(dir.startswith('time_resolved') for dir in self.dir):
+            return
+
+        if not quiet_startup:
+            print('Time resolved data found')
+        self.tr_bool = True
+
+        temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('time_resolved')]
+        temp.sort()
+        self.tr_colls = {}
+        for coll in temp:
+            self.tr_colls[int(coll.split('/')[-1].split('_')[-1])] = coll
+
+        num_colls = len(self.tr_colls)
+        if not quiet_startup:
+            print(f' - {num_colls} time resolved collections')
+
+        if num_colls == 0:
+            return
+
+        # Get field names
+        self.tr_fields = [file.split('.')[0] for file in os.listdir(self.tr_colls[1]) if file.endswith('.npy') and file != 'times.npy']
+        self.tr_fields.sort()
+        if not quiet_startup:
+            print(f' - {len(self.tr_fields)} fields: {", ".join(self.tr_fields)}')
+
+        # Set up dictionaries
+        self.tr_data = {}
+        for field in self.tr_fields:
+            self.tr_data[field] = {}
+            for collection in self.tr_colls:
+                self.tr_data[field][collection] = []
+
+        # Load times for each collection
+        self.tr_times = {}
+        for collection in self.tr_data[field]:
+            self.tr_times[collection] = np.load(f'{self.tr_colls[collection]}/times.npy')
+
+        # Get the interval period
+        with open(f'{self.directory}/diagnostic_times.dat', 'r') as f:
+            for line in f:
+                if line.startswith('Interval period [s]='):
+                    self.interval_period = float(line.split('=')[1])
+                    break
+        if not quiet_startup:
+            print(f' - Assuming an RF period of {self.interval_period:.2e} s')
+
+    def _initialize_time_averaged_data(self, quiet_startup: bool):
+        '''Initialize time averaged data'''
+        if not any(dir.startswith('time_averaged') for dir in self.dir):
+            return
+
+        if not quiet_startup:
+            print('Time averaged data found')
+        self.ta_bool = True
+
+        temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('time_averaged')]
+        temp.sort()
+        self.ta_colls = {}
+        for coll in temp:
+            self.ta_colls[int(coll.split('/')[-1].split('_')[-1])] = coll
+
+        if not quiet_startup:
+            print(f' - {len(self.ta_colls)} time averaged collections')
+
+        # Get field names
+        self.ta_fields = [file.split('.')[0] for file in os.listdir(self.ta_colls[1]) if file.endswith('.npy')]
+        self.ta_fields.sort()
+        if not quiet_startup:
+            print(f' - {len(self.ta_fields)} fields: {", ".join(self.ta_fields)}')
+
+        # Set up dictionary to store time averaged data
+        self.ta_data = {}
+        for field in self.ta_fields:
+            self.ta_data[field] = {}
+            for collection in self.ta_colls:
+                self.ta_data[field][collection] = []
+
+    def _load_spatial_grids(self):
+        '''Load spatial grid data if any time-based data exists'''
         if self.in_bool or self.tr_bool or self.ta_bool:
             self.cells = np.load(f'{self.directory}/cells.npy')
             self.nodes = np.load(f'{self.directory}/nodes.npy')
 
-        # Collect energy distribution function bins for normal edfs, if they exist
+    def _initialize_edf_data(self, quiet_startup: bool):
+        '''Initialize energy distribution function data'''
         edf_fields = ['EEdf', 'IEdf']
-        if any(hasattr(self, attr) and any(field.startswith(edf) for field in getattr(self, attr)) for attr in ['ta_fields', 'tr_fields', 'in_fields'] for edf in edf_fields):
-            if not quiet_startup:
-                print('Energy distribution function data found')
-            # Get the boundaries of the edf collection region from the diagnostic_times.dat file
-            self.edf_box_boundaries = []
-            with open(f'{self.directory}/diagnostic_times.dat', 'r') as f:
-                # First loop: find the line with the marker
-                for line in f:
-                    if 'EDF Boundaries [m]:' in line:
-                        # Remove 'EDF Boundaries [m]:' and extract data
-                        data_part = line.split(':')[-1]
-                        self.edf_box_boundaries.append(np.array(data_part.strip().strip('[]').split(), dtype=float))
-                        break  # Exit this loop once the marker line is processed
-                # Second loop: read subsequent lines until an empty line or EOF
-                for line in f: # Continues from where the previous loop left off
-                    if line.strip() == '': # Check for an empty line
-                        break # Stop if an empty line is found
-                    self.edf_box_boundaries.append(np.array(line.strip().strip('[]').split(), dtype=float))
-                self.edf_box_boundaries = np.concatenate(self.edf_box_boundaries)
+        if not any(hasattr(self, attr) and any(field.startswith(edf) for field in getattr(self, attr))
+                  for attr in ['ta_fields', 'tr_fields', 'in_fields'] for edf in edf_fields):
+            return
 
-            # Determine indices for all boundaries including domain edges
-            # Find node indices corresponding to each EDF boundary position
-            self.edf_boundary_node_indices = np.r_[0, np.searchsorted(self.nodes, self.edf_box_boundaries, side='left'), len(self.nodes)-1]
-            # Append a boundary at zero and at the end of the domain
-            self.edf_box_boundaries = np.concatenate(([0], self.edf_box_boundaries, [self.nodes[-1]]))
-            if not quiet_startup:
-                print(f' - Edfs collected in {len(self.edf_box_boundaries) - 1} regions')
-            # Calculate the midpoints of each EDF box
-            self.edf_box_midpoints = (self.edf_box_boundaries[:-1] + self.edf_box_boundaries[1:]) / 2
-            # Find node indices corresponding to the midpoints of each EDF box
-            self.edf_midpoint_node_indices = np.searchsorted(self.nodes, self.edf_box_midpoints, side='left')
+        if not quiet_startup:
+            print('Energy distribution function data found')
 
-            self.edf_energy = {}
-            for edf in edf_fields:
-                if any(hasattr(self, attr) and any(field.startswith(edf) for field in getattr(self, attr)) for attr in ['ta_fields', 'tr_fields', 'in_fields']):
-                    self.edf_energy[edf] = np.load(f'{self.directory}/{edf.lower()}_bins_eV.npy')
-                    if not quiet_startup:
-                        print(f' - {edf} energy bins collected')
+        # Get the boundaries of the edf collection region from the diagnostic_times.dat file
+        self.edf_box_boundaries = []
+        with open(f'{self.directory}/diagnostic_times.dat', 'r') as f:
+            # First loop: find the line with the marker
+            for line in f:
+                if 'EDF Boundaries [m]:' in line:
+                    # Remove 'EDF Boundaries [m]:' and extract data
+                    data_part = line.split(':')[-1]
+                    self.edf_box_boundaries.append(np.array(data_part.strip().strip('[]').split(), dtype=float))
+                    break  # Exit this loop once the marker line is processed
+            # Second loop: read subsequent lines until an empty line or EOF
+            for line in f: # Continues from where the previous loop left off
+                if line.strip() == '': # Check for an empty line
+                    break # Stop if an empty line is found
+                self.edf_box_boundaries.append(np.array(line.strip().strip('[]').split(), dtype=float))
+            self.edf_box_boundaries = np.concatenate(self.edf_box_boundaries)
+
+        # Process EDF boundaries and indices
+        self.edf_boundary_node_indices = np.r_[0, np.searchsorted(self.nodes, self.edf_box_boundaries, side='left'), len(self.nodes)-1]
+        self.edf_box_boundaries = np.concatenate(([0], self.edf_box_boundaries, [self.nodes[-1]]))
+        if not quiet_startup:
+            print(f' - Edfs collected in {len(self.edf_box_boundaries) - 1} regions')
+
+        # Calculate midpoints and indices
+        self.edf_box_midpoints = (self.edf_box_boundaries[:-1] + self.edf_box_boundaries[1:]) / 2
+        self.edf_midpoint_node_indices = np.searchsorted(self.nodes, self.edf_box_midpoints, side='left')
+
+        # Load energy bins for each EDF type
+        self.edf_energy = {}
+        for edf in edf_fields:
+            if any(hasattr(self, attr) and any(field.startswith(edf) for field in getattr(self, attr))
+                  for attr in ['ta_fields', 'tr_fields', 'in_fields']):
+                self.edf_energy[edf] = np.load(f'{self.directory}/{edf.lower()}_bins_eV.npy')
+                if not quiet_startup:
+                    print(f' - {edf} energy bins collected')
 
     def load_Riz_data_lists(self, species: str = None):
         '''
