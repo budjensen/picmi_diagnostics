@@ -2759,16 +2759,16 @@ class Diagnostics1D:
                 for ii in range(len(self.in_slices)):
                     if len(self.in_coll_steps[self.curr_diag_output]) == 0:
                         continue
-                    self.ta_W_e[ii] = np.divide(self.ta_W_e[ii] * v2_factor, self.in_W_e_collection_mask[ii],
-                                                out=np.zeros_like(self.ta_W_e[ii]),
+                    self.in_W_e[ii] = np.divide(self.in_W_e[ii] * v2_factor, self.in_W_e_collection_mask[ii],
+                                                out=np.zeros_like(self.in_W_e[ii]),
                                                 where=self.in_W_e_collection_mask[ii]!=0)
             if active['W_i']:
                 v2_factor = self.mass_by_name[species[1]] / 2.0 / constants.q_e
                 for ii in range(len(self.in_slices)):
                     if len(self.in_coll_steps[self.curr_diag_output]) == 0:
                         continue
-                    self.ta_W_i[ii] = np.divide(self.ta_W_i[ii] * v2_factor, self.in_W_i_collection_mask[ii],
-                                                out=np.zeros_like(self.ta_W_i[ii]),
+                    self.in_W_i[ii] = np.divide(self.in_W_i[ii] * v2_factor, self.in_W_i_collection_mask[ii],
+                                                out=np.zeros_like(self.in_W_i[ii]),
                                                 where=self.in_W_i_collection_mask[ii]!=0)
             if active['E_z']:
                 for ii in range(len(self.in_slices)):
