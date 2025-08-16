@@ -970,8 +970,7 @@ class Analysis:
         Parameters
         ----------
         field : str
-            The field to add. Must be one of 'P_e', 'P_i', 'P_t', 'EfV',
-            'Jzc', 'J_t'
+            The field to add. Must be one of 'P_t', 'EfV', 'Jzc', 'J_t'
 
         Returns
         -------
@@ -980,42 +979,19 @@ class Analysis:
         '''
         if not self.in_bool:
             raise ValueError('Interval data not found')
-        if field not in ['P_e', 'P_i', 'P_t', 'EfV', 'Jzc', 'J_t']:
-            raise ValueError('Field must be one of: P_e, P_i, P_t, EfV, Jzc, J_t')
-        if field in ['P_e', 'P_i', 'P_t']:
+        if field not in ['P_t', 'EfV', 'Jzc', 'J_t']:
+            raise ValueError('Field must be one of: P_t, EfV, Jzc, J_t')
+        if field == 'P_t':
+            self.load_intervals('CPe')
+            self.load_intervals('CPi')
+            self.in_data[field] = {}
+            for coll in self.in_data['CPe']:
+                self.in_data[field][coll] = [0] * len(self.in_times)
+                for interval in range(len(self.in_times)):
+                    self.in_data[field][coll][interval] = np.sum((self.in_data['CPe'][coll][interval] + self.in_data['CPi'][coll][interval]) * self.dz)
+            # Check if the field is already in self.in_fields before adding
             if field not in self.in_fields:
-                self.add_interval_field('EfV')
-            if field == 'P_e':
-                self.load_intervals('Jze')
-                self.in_data[field] = {}
-                for coll in self.in_data['EfV']:
-                    self.in_data[field][coll] = [0] * len(self.in_times)
-                    for interval in range(len(self.in_times)):
-                        self.in_data[field][coll][interval] = self.in_data['EfV'][coll][interval] * self.in_data['Jze'][coll][interval]
-                # Check if the field is already in self.in_fields before adding
-                if field not in self.in_fields:
-                    self.in_fields.append(field)
-            elif field == 'P_i':
-                self.load_intervals('Jzi')
-                self.in_data[field] = {}
-                for coll in self.in_data['EfV']:
-                    self.in_data[field][coll] = [0] * len(self.in_times)
-                    for interval in range(len(self.in_times)):
-                        self.in_data[field][coll][interval] = self.in_data['EfV'][coll][interval] * self.in_data['Jzi'][coll][interval]
-                # Check if the field is already in self.in_fields before adding
-                if field not in self.in_fields:
-                    self.in_fields.append(field)
-            elif field == 'P_t':
-                self.load_intervals('Jze')
-                self.load_intervals('Jzi')
-                self.in_data[field] = {}
-                for coll in self.in_data['EfV']:
-                    self.in_data[field][coll] = [0] * len(self.in_times)
-                    for interval in range(len(self.in_times)):
-                        self.in_data[field][coll][interval] = self.in_data['EfV'][coll][interval] * (self.in_data['Jze'][coll][interval] + self.in_data['Jzi'][coll][interval])
-                # Check if the field is already in self.in_fields before adding
-                if field not in self.in_fields:
-                    self.in_fields.append(field)
+                self.in_fields.append(field)
         elif field == 'EfV':
             self.load_intervals('phi')
             self.in_data[field] = {}
@@ -1245,8 +1221,7 @@ class Analysis:
         Parameters
         ----------
         field : str
-            The field to add. Must be one of 'P_e', 'P_i', 'P_t', 'EfV',
-            'Jzc', 'J_t'
+            The field to add. Must be one of: 'P_t', 'EfV', 'Jzc', 'J_t'
 
         Returns
         -------
@@ -1255,36 +1230,17 @@ class Analysis:
         '''
         if not self.tr_bool:
             raise ValueError('Time resolved data not found')
-        if field not in ['P_e', 'P_i', 'P_t', 'EfV', 'Jzc', 'J_t']:
-            raise ValueError('Field must be one of: P_e, P_i, P_t, EfV, Jzc, J_t')
-        if field in ['P_e', 'P_i', 'P_t']:
+        if field not in ['P_t', 'EfV', 'Jzc', 'J_t']:
+            raise ValueError('Field must be one of: P_t, EfV, Jzc, J_t')
+        if field == 'P_t':
+            self.load_time_resolved('CPe')
+            self.load_time_resolved('CPi')
+            self.tr_data[field] = {}
+            for coll in self.tr_data['CPe']:
+                self.tr_data[field][coll] = np.sum((self.tr_data['CPe'][coll] + self.tr_data['CPi'][coll]) * self.dz, axis=1)
+            # Check if the field is already in self.tr_fields before adding
             if field not in self.tr_fields:
-                self.add_time_resolved_field('EfV')
-            if field == 'P_e':
-                self.load_time_resolved('Jze')
-                self.tr_data[field] = {}
-                for coll in self.tr_data['EfV']:
-                    self.tr_data[field][coll] = self.tr_data['EfV'][coll] * self.tr_data['Jze'][coll]
-                # Check if the field is already in self.tr_fields before adding
-                if field not in self.tr_fields:
-                    self.tr_fields.append(field)
-            elif field == 'P_i':
-                self.load_time_resolved('Jzi')
-                self.tr_data[field] = {}
-                for coll in self.tr_data['EfV']:
-                    self.tr_data[field][coll] = self.tr_data['EfV'][coll] * self.tr_data['Jzi'][coll]
-                # Check if the field is already in self.tr_fields before adding
-                if field not in self.tr_fields:
-                    self.tr_fields.append(field)
-            elif field == 'P_t':
-                self.load_time_resolved('Jze')
-                self.load_time_resolved('Jzi')
-                self.tr_data[field] = {}
-                for coll in self.tr_data['EfV']:
-                    self.tr_data[field][coll] = self.tr_data['EfV'][coll] * (self.tr_data['Jze'][coll] + self.tr_data['Jzi'][coll])
-                # Check if the field is already in self.tr_fields before adding
-                if field not in self.tr_fields:
-                    self.tr_fields.append(field)
+                self.tr_fields.append(field)
         elif field == 'EfV':
             self.load_time_resolved('phi')
             self.tr_data[field] = {}
@@ -2313,8 +2269,7 @@ class Analysis:
         Parameters
         ----------
         field : str
-            The field to add. Must be one of 'P_e', 'P_i', 'P_t', 'EfV',
-            'Jzc', 'J_t'
+            The field to add. Must be one of 'P_t', 'EfV', 'Jzc', 'J_t'
 
         Returns
         -------
@@ -2323,36 +2278,17 @@ class Analysis:
         '''
         if not self.ta_bool:
             raise ValueError('Time averaged data not found')
-        if field not in ['P_e', 'P_i', 'P_t', 'EfV', 'Jzc', 'J_t']:
-            raise ValueError('Field must be one of: P_e, P_i, P_t, EfV, Jzc, J_t')
-        if field in ['P_e', 'P_i', 'P_t']:
+        if field not in ['P_t', 'EfV', 'Jzc', 'J_t']:
+            raise ValueError('Field must be one of: P_t, EfV, Jzc, J_t')
+        if field == 'P_t':
+            self.load_time_averaged('CPe')
+            self.load_time_averaged('CPi')
+            self.ta_data[field] = {}
+            for coll in self.ta_data['CPi']:
+                self.ta_data[field][coll] = np.sum((self.ta_data['CPe'][coll] + self.ta_data['CPi'][coll]) * self.dz)
+            # Check if the field is already in self.ta_fields before adding
             if field not in self.ta_fields:
-                self.add_time_averaged_field('EfV')
-            if field == 'P_e':
-                self.load_time_averaged('Jze')
-                self.ta_data[field] = {}
-                for coll in self.ta_data['EfV']:
-                    self.ta_data[field][coll] = self.ta_data['EfV'][coll] * self.ta_data['Jze'][coll]
-                # Check if the field is already in self.ta_fields before adding
-                if field not in self.ta_fields:
-                    self.ta_fields.append(field)
-            elif field == 'P_i':
-                self.load_time_averaged('Jzi')
-                self.ta_data[field] = {}
-                for coll in self.ta_data['EfV']:
-                    self.ta_data[field][coll] = self.ta_data['EfV'][coll] * self.ta_data['Jzi'][coll]
-                # Check if the field is already in self.ta_fields before adding
-                if field not in self.ta_fields:
-                    self.ta_fields.append(field)
-            elif field == 'P_t':
-                self.load_time_averaged('Jze')
-                self.load_time_averaged('Jzi')
-                self.ta_data[field] = {}
-                for coll in self.ta_data['EfV']:
-                    self.ta_data[field][coll] = self.ta_data['EfV'][coll] * (self.ta_data['Jze'][coll] + self.ta_data['Jzi'][coll])
-                # Check if the field is already in self.ta_fields before adding
-                if field not in self.ta_fields:
-                    self.ta_fields.append(field)
+                self.ta_fields.append(field)
         elif field == 'EfV':
             self.load_time_averaged('phi')
             self.ta_data[field] = {}
@@ -2403,7 +2339,9 @@ class Analysis:
             if field not in self.ta_fields:
                 raise ValueError(f'Field must be one of: {", ".join(self.ta_fields)}')
             # Check if the field has been loaded into self.ta_data. If it unloaded, the list will be empty
-            if any([len(self.ta_data[field][key]) == 0 for key in self.ta_data[field]]):
+            if field == 'P_t':
+                pass  # P_t is a special case, loaded in add_time_averaged_field
+            elif any([len(self.ta_data[field][key]) == 0 for key in self.ta_data[field]]):
                 self.load_time_averaged(field)
             if not hasattr(self, 'avg_ta_data'):
                 self.avg_ta_data = {}
