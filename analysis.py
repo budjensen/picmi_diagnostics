@@ -971,7 +971,7 @@ class Analysis:
         ----------
         field : str
             The field to add. Must be one of 'P_e', 'P_i', 'P_t', 'EfV',
-            'Jzc'
+            'Jzc', 'J_t'
 
         Returns
         -------
@@ -980,8 +980,8 @@ class Analysis:
         '''
         if not self.in_bool:
             raise ValueError('Interval data not found')
-        if field not in ['P_e', 'P_i', 'P_t', 'EfV', 'Jzc']:
-            raise ValueError('Field must be one of: P_e, P_i, P_t, EfV, Jzc')
+        if field not in ['P_e', 'P_i', 'P_t', 'EfV', 'Jzc', 'J_t']:
+            raise ValueError('Field must be one of: P_e, P_i, P_t, EfV, Jzc, J_t')
         if field in ['P_e', 'P_i', 'P_t']:
             if field not in self.in_fields:
                 self.add_interval_field('EfV')
@@ -1034,6 +1034,20 @@ class Analysis:
                 self.in_data[field][coll] = [0] * len(self.in_times)
                 for interval in range(len(self.in_times)):
                     self.in_data[field][coll][interval] = self.in_data['Jze'][coll][interval] + self.in_data['Jzi'][coll][interval]
+            # Check if the field is already in self.in_fields before adding
+            if field not in self.in_fields:
+                self.in_fields.append(field)
+        elif field == 'J_t':
+            self.load_intervals('Jze')
+            self.load_intervals('Jzi')
+            self.load_intervals('J_d')
+            self.in_data[field] = {}
+            for coll in self.in_data['Jze']:
+                self.in_data[field][coll] = [0] * len(self.in_times)
+                for interval in range(len(self.in_times)):
+                    # Interpolate J_d from cells to nodes
+                    J_d_on_nodes = np.interp(self.nodes, self.cells, self.in_data['J_d'][coll][interval])
+                    self.in_data[field][coll][interval] = self.in_data['Jze'][coll][interval] + self.in_data['Jzi'][coll][interval] + J_d_on_nodes
             # Check if the field is already in self.in_fields before adding
             if field not in self.in_fields:
                 self.in_fields.append(field)
@@ -1215,7 +1229,7 @@ class Analysis:
         ----------
         field : str
             The field to add. Must be one of 'P_e', 'P_i', 'P_t', 'EfV',
-            'Jzc'
+            'Jzc', 'J_t'
 
         Returns
         -------
@@ -1224,8 +1238,8 @@ class Analysis:
         '''
         if not self.tr_bool:
             raise ValueError('Time resolved data not found')
-        if field not in ['P_e', 'P_i', 'P_t', 'EfV', 'Jzc']:
-            raise ValueError('Field must be one of: P_e, P_i, P_t, EfV, Jzc')
+        if field not in ['P_e', 'P_i', 'P_t', 'EfV', 'Jzc', 'J_t']:
+            raise ValueError('Field must be one of: P_e, P_i, P_t, EfV, Jzc, J_t')
         if field in ['P_e', 'P_i', 'P_t']:
             if field not in self.tr_fields:
                 self.add_time_resolved_field('EfV')
@@ -1268,6 +1282,19 @@ class Analysis:
             self.tr_data[field] = {}
             for coll in self.tr_data['Jze']:
                 self.tr_data[field][coll] = self.tr_data['Jze'][coll] + self.tr_data['Jzi'][coll]
+            # Check if the field is already in self.tr_fields before adding
+            if field not in self.tr_fields:
+                self.tr_fields.append(field)
+        elif field == 'J_t':
+            self.load_time_resolved('Jze')
+            self.load_time_resolved('Jzi')
+            self.load_time_resolved('J_d')
+            self.tr_data[field] = {}
+            for coll in self.tr_data['Jze']:
+                # Interpolate J_d from cells to nodes for each time step
+                J_d_on_nodes = np.array([np.interp(self.nodes, self.cells, J_d_timestep)
+                                        for J_d_timestep in self.tr_data['J_d'][coll]])
+                self.tr_data[field][coll] = self.tr_data['Jze'][coll] + self.tr_data['Jzi'][coll] + J_d_on_nodes
             # Check if the field is already in self.tr_fields before adding
             if field not in self.tr_fields:
                 self.tr_fields.append(field)
@@ -2270,7 +2297,7 @@ class Analysis:
         ----------
         field : str
             The field to add. Must be one of 'P_e', 'P_i', 'P_t', 'EfV',
-            'Jzc'
+            'Jzc', 'J_t'
 
         Returns
         -------
@@ -2279,8 +2306,8 @@ class Analysis:
         '''
         if not self.ta_bool:
             raise ValueError('Time averaged data not found')
-        if field not in ['P_e', 'P_i', 'P_t', 'EfV', 'Jzc']:
-            raise ValueError('Field must be one of: P_e, P_i, P_t, EfV, Jzc')
+        if field not in ['P_e', 'P_i', 'P_t', 'EfV', 'Jzc', 'J_t']:
+            raise ValueError('Field must be one of: P_e, P_i, P_t, EfV, Jzc, J_t')
         if field in ['P_e', 'P_i', 'P_t']:
             if field not in self.ta_fields:
                 self.add_time_averaged_field('EfV')
@@ -2323,6 +2350,18 @@ class Analysis:
             self.ta_data[field] = {}
             for coll in self.ta_data['Jze']:
                 self.ta_data[field][coll] = self.ta_data['Jze'][coll] + self.ta_data['Jzi'][coll]
+            # Check if the field is already in self.ta_fields before adding
+            if field not in self.ta_fields:
+                self.ta_fields.append(field)
+        elif field == 'J_t':
+            self.load_time_averaged('Jze')
+            self.load_time_averaged('Jzi')
+            self.load_time_averaged('J_d')
+            self.ta_data[field] = {}
+            for coll in self.ta_data['Jze']:
+                # Interpolate J_d from cells to nodes
+                J_d_on_nodes = np.interp(self.nodes, self.cells, self.ta_data['J_d'][coll])
+                self.ta_data[field][coll] = self.ta_data['Jze'][coll] + self.ta_data['Jzi'][coll] + J_d_on_nodes
             # Check if the field is already in self.ta_fields before adding
             if field not in self.ta_fields:
                 self.ta_fields.append(field)
