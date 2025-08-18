@@ -52,6 +52,7 @@ class CapacitiveDischargeExample(object):
 
     num_diag_steps = 1                                  # Number of diagnostic evaluations
     collections_per_diag_step = 3200                    # Number of collections per diagnostic evaluation for time resolved diagnostics
+    steps_bw_avg_collections = 2                        # Number of steps between time averaged collections
     interval_diag_times = [0, 0.25, 0.5, 0.75]          # Times to evaluate interval diagnostics (as a fraction of the RF period), if turned on
     interval_time = 1 / freq                            # Time to run interval diagnostics
     Riz_collection_time = diag_time                     # Time to run ionization rate diagnostics

@@ -929,6 +929,7 @@ class Diagnostics1D:
         # Set up diagnostics
         self._import_general_timing_info(simulation_obj)
         self._get_time_resolved_steps(simulation_obj)
+        self._setup_time_averaged_steps(simulation_obj)
         if any(interval_dict.values()):
             self._get_interval_collection_steps()
         else:
@@ -1123,7 +1124,7 @@ class Diagnostics1D:
         for ii in range(self.num_outputs):
             total_steps = self.diag_stop[ii] - self.diag_start[ii]
             self.tr_coll[ii] = int((total_steps // self.diag_time_resolving_steps) + 1)
-            self.ta_coll[ii] = int(total_steps + 1)
+            self.ta_coll[ii] = int((total_steps // self.diag_time_averaging_steps) + 1)
 
         if comm.rank != 0:
             return
@@ -1356,6 +1357,15 @@ class Diagnostics1D:
         # Convert times to steps
         self.diag_time_resolving_steps = int(self.tr_interval / self.dt)
 
+    def _setup_time_averaged_steps(self, simulation_obj: CapacitiveDischargeExample):
+        '''
+        Set up the time averaged diagnostic steps
+        '''
+        # Import simulation parameters
+        if simulation_obj.steps_bw_avg_collections <= 0 or not isinstance(simulation_obj.steps_bw_avg_collections, int):
+            raise ValueError('steps_bw_avg_collections must be greater than zero.')
+        self.diag_time_averaging_steps = simulation_obj.steps_bw_avg_collections
+
     def _save_diagnostic_inputs(self):
         '''
         Save diagnostic times and information to file
@@ -1382,6 +1392,8 @@ class Diagnostics1D:
 
             f.write(f'Time [s] between time resolved collections={self.tr_interval}\n')
             f.write(f'Time resolved collections per diagnostic={self.num_in_tr}\n\n')
+
+            f.write(f'Number of steps between time average collections={self.diag_time_averaging_steps}\n\n')
 
             f.write(f'Interval period [s]={self.in_period}\n')
             f.write(f'Times in interval={', '.join(map(str,self.in_slices))}\n\n')
@@ -2425,7 +2437,7 @@ class Diagnostics1D:
         save_E_last_step = False
         if self.master_diagnostic_dict['time_resolved']['J_d'] and (next_step - self.diag_start[self.curr_diag_output]) % self.diag_time_resolving_steps == 0:
             save_E_last_step = True
-        if self.master_diagnostic_dict['time_averaged']['J_d'] and (next_step >= self.diag_start[self.curr_diag_output]):
+        if self.master_diagnostic_dict['time_averaged']['J_d'] and (next_step - self.diag_start[self.curr_diag_output]) % self.diag_time_averaging_steps == 0:
             save_E_last_step = True
         if len(self.in_coll_steps[self.curr_diag_output]) > 0:
             if self.master_diagnostic_dict['interval']['J_d'] and next_step == self.in_coll_steps[self.curr_diag_output][self.curr_interval][self.curr_slice]:
@@ -2436,9 +2448,9 @@ class Diagnostics1D:
         time_resolved = False
         time_averaged = False
         interval = False
-        if any(self.master_diagnostic_dict['time_resolved'].values()) and ((step - self.diag_start[self.curr_diag_output]) % self.diag_time_resolving_steps == 0) and step >= self.diag_start[self.curr_diag_output]:
+        if any(self.master_diagnostic_dict['time_resolved'].values()) and step >= self.diag_start[self.curr_diag_output] and ((step - self.diag_start[self.curr_diag_output]) % self.diag_time_resolving_steps == 0):
             time_resolved = True
-        if any(self.master_diagnostic_dict['time_averaged'].values()) and (step >= self.diag_start[self.curr_diag_output]):
+        if any(self.master_diagnostic_dict['time_averaged'].values()) and step >= self.diag_start[self.curr_diag_output] and ((step - self.diag_start[self.curr_diag_output]) % self.diag_time_averaging_steps == 0):
             time_averaged = True
         if any(self.master_diagnostic_dict['interval'].values()) and len(self.in_coll_steps[self.curr_diag_output]) > 0:
             if (step == self.in_coll_steps[self.curr_diag_output][self.curr_interval][self.curr_slice]):
