@@ -1974,56 +1974,10 @@ class Diagnostics1D:
         hist: np.ndarray
             The histogram of the electron energy distribution function
         '''
-        def get_eedf():
-            '''
-            Gets the electron energy distribution function.
-            '''
-            # Set up wrappers
-            species_wrapper = particle_containers.ParticleContainerWrapper('electrons')
+        # Get the eedf on the processor
+        hist = self._get_eedf()
 
-            try:
-                z  = np.concatenate(species_wrapper.get_particle_z())
-                ux = np.concatenate(species_wrapper.get_particle_ux())
-                uy = np.concatenate(species_wrapper.get_particle_uy())
-                uz = np.concatenate(species_wrapper.get_particle_uz())
-                w  = np.concatenate(species_wrapper.get_particle_weight())
-            except ValueError:
-                z  = np.array([])
-                ux = np.array([])
-                uy = np.array([])
-                uz = np.array([])
-                w  = np.array([])
-
-            # Calculate the energy
-            v2 = (np.square(ux) + np.square(uy) + np.square(uz))
-            E = np.multiply(v2, 0.5 * constants.m_e / constants.q_e)
-
-            mask = np.zeros((len(self.edf_bounds) + 1, len(z)), dtype=bool)
-            if len(self.edf_bounds) > 0:
-                mask[0] = z < self.edf_bounds[0]
-                for ii in range(1, len(self.edf_bounds)):
-                    mask[ii] = (z >= self.edf_bounds[ii-1]) & (z < self.edf_bounds[ii])
-                mask[-1] = z >= self.edf_bounds[-1]
-            else:
-                mask[0] = np.ones_like(z, dtype=bool)
-
-            hist_by_mask = []
-
-            for i in range(len(self.edf_bounds) + 1):
-                # Get the histogram (unnormalized)
-                hist, _ = np.histogram(E[mask[i]], bins=self.eedf_bin_edges, density=False, weights=w[mask[i]] / self.dz)
-
-                hist = np.copy(hist, order='C')
-                hist_by_mask.append(hist)
-
-            hist_by_mask = np.stack(hist_by_mask)
-
-            return hist_by_mask
-
-        # Get the ieadf on the processor
-        hist = get_eedf()
-
-        # Sum the ieadf histograms from all processors
+        # Sum the eedf histograms from all processors
         hist_all = np.zeros_like(hist)
         comm.Allreduce(hist, hist_all, op=mpi.SUM)
 
@@ -2031,6 +1985,52 @@ class Diagnostics1D:
         idx = self.diag_idx_by_name['electrons']
 
         self.Edf[idx] = hist_all
+
+    def _get_eedf(self):
+        '''
+        Gets the electron energy distribution function.
+        '''
+        # Set up wrappers
+        species_wrapper = particle_containers.ParticleContainerWrapper('electrons')
+
+        try:
+            z  = np.concatenate(species_wrapper.get_particle_z())
+            ux = np.concatenate(species_wrapper.get_particle_ux())
+            uy = np.concatenate(species_wrapper.get_particle_uy())
+            uz = np.concatenate(species_wrapper.get_particle_uz())
+            w  = np.concatenate(species_wrapper.get_particle_weight())
+        except ValueError:
+            z  = np.array([])
+            ux = np.array([])
+            uy = np.array([])
+            uz = np.array([])
+            w  = np.array([])
+
+        # Calculate the energy
+        v2 = (np.square(ux) + np.square(uy) + np.square(uz))
+        E = np.multiply(v2, 0.5 * constants.m_e / constants.q_e)
+
+        mask = np.zeros((len(self.edf_bounds) + 1, len(z)), dtype=bool)
+        if len(self.edf_bounds) > 0:
+            mask[0] = z < self.edf_bounds[0]
+            for ii in range(1, len(self.edf_bounds)):
+                mask[ii] = (z >= self.edf_bounds[ii-1]) & (z < self.edf_bounds[ii])
+            mask[-1] = z >= self.edf_bounds[-1]
+        else:
+            mask[0] = np.ones_like(z, dtype=bool)
+
+        hist_by_mask = []
+
+        for i in range(len(self.edf_bounds) + 1):
+            # Get the histogram (unnormalized)
+            hist, _ = np.histogram(E[mask[i]], bins=self.eedf_bin_edges, density=False, weights=w[mask[i]] / self.dz)
+
+            hist = np.copy(hist, order='C')
+            hist_by_mask.append(hist)
+
+        hist_by_mask = np.stack(hist_by_mask)
+
+        return hist_by_mask
 
     def calculate_iedf(self, species: str):
         '''
@@ -2047,56 +2047,10 @@ class Diagnostics1D:
         hist: np.ndarray
             The histogram of the ion energy distribution function
         '''
-        def get_iedf(species):
-            '''
-            Gets the ion energy distribution function.
-            '''
-            # Set up wrappers
-            species_wrapper = particle_containers.ParticleContainerWrapper(species)
+        # Get the iedf on the processor
+        hist = self._get_iedf(species)
 
-            try:
-                z  = np.concatenate(species_wrapper.get_particle_z())
-                ux = np.concatenate(species_wrapper.get_particle_ux())
-                uy = np.concatenate(species_wrapper.get_particle_uy())
-                uz = np.concatenate(species_wrapper.get_particle_uz())
-                w  = np.concatenate(species_wrapper.get_particle_weight())
-            except ValueError:
-                z  = np.array([])
-                ux = np.array([])
-                uy = np.array([])
-                uz = np.array([])
-                w  = np.array([])
-
-            # Calculate the energy
-            v2 = (np.square(ux) + np.square(uy) + np.square(uz))
-            E = np.multiply(v2, 0.5 * self.m_ion / constants.q_e)
-
-            mask = np.zeros((len(self.edf_bounds) + 1, len(z)), dtype=bool)
-            if len(self.edf_bounds) > 0:
-                mask[0] = z < self.edf_bounds[0]
-                for ii in range(1, len(self.edf_bounds)):
-                    mask[ii] = (z >= self.edf_bounds[ii-1]) & (z < self.edf_bounds[ii])
-                mask[-1] = z >= self.edf_bounds[-1]
-            else:
-                mask[0] = np.ones_like(z, dtype=bool)
-
-            hist_by_mask = []
-
-            for i in range(len(self.edf_bounds) + 1):
-                # Get the histogram (unnormalized)
-                hist, _ = np.histogram(E[mask[i]], bins=self.iedf_bin_edges, density=False, weights=w[mask[i]] / self.dz)
-
-                hist = np.copy(hist, order='C')
-                hist_by_mask.append(hist)
-
-            hist_by_mask = np.stack(hist_by_mask)
-
-            return hist_by_mask
-
-        # Get the ieadf on the processor
-        hist = get_iedf(species)
-
-        # Sum the ieadf histograms from all processors
+        # Sum the iedf histograms from all processors
         hist_all = np.zeros_like(hist)
         comm.Allreduce(hist, hist_all, op=mpi.SUM)
 
@@ -2104,6 +2058,52 @@ class Diagnostics1D:
         idx = self.diag_idx_by_name[species]
 
         self.Edf[idx] = hist_all
+
+    def _get_iedf(self, species):
+        '''
+        Gets the ion energy distribution function.
+        '''
+        # Set up wrappers
+        species_wrapper = particle_containers.ParticleContainerWrapper(species)
+
+        try:
+            z  = np.concatenate(species_wrapper.get_particle_z())
+            ux = np.concatenate(species_wrapper.get_particle_ux())
+            uy = np.concatenate(species_wrapper.get_particle_uy())
+            uz = np.concatenate(species_wrapper.get_particle_uz())
+            w  = np.concatenate(species_wrapper.get_particle_weight())
+        except ValueError:
+            z  = np.array([])
+            ux = np.array([])
+            uy = np.array([])
+            uz = np.array([])
+            w  = np.array([])
+
+        # Calculate the energy
+        v2 = (np.square(ux) + np.square(uy) + np.square(uz))
+        E = np.multiply(v2, 0.5 * self.m_ion / constants.q_e)
+
+        mask = np.zeros((len(self.edf_bounds) + 1, len(z)), dtype=bool)
+        if len(self.edf_bounds) > 0:
+            mask[0] = z < self.edf_bounds[0]
+            for ii in range(1, len(self.edf_bounds)):
+                mask[ii] = (z >= self.edf_bounds[ii-1]) & (z < self.edf_bounds[ii])
+            mask[-1] = z >= self.edf_bounds[-1]
+        else:
+            mask[0] = np.ones_like(z, dtype=bool)
+
+        hist_by_mask = []
+
+        for i in range(len(self.edf_bounds) + 1):
+            # Get the histogram (unnormalized)
+            hist, _ = np.histogram(E[mask[i]], bins=self.iedf_bin_edges, density=False, weights=w[mask[i]] / self.dz)
+
+            hist = np.copy(hist, order='C')
+            hist_by_mask.append(hist)
+
+        hist_by_mask = np.stack(hist_by_mask)
+
+        return hist_by_mask
 
     def calculate_ieadf(self, species: str, boundary: str):
         '''
@@ -2123,49 +2123,49 @@ class Diagnostics1D:
         hist: np.ndarray
             The histogram of the ion energy distribution function
         '''
-        def get_ieadf(species, boundary):
-            '''
-            Gets the ion energy angular distribution function.
-            '''
-            if boundary not in ['z_lo', 'z_hi']:
-                raise ValueError("Boundary must be one of 'z_lo' or 'z_hi'")
-
-            # Set up wrappers
-            boundary_wrapper = particle_containers.ParticleBoundaryBufferWrapper()
-
-            try:
-                ux = np.concatenate(boundary_wrapper.get_particle_boundary_buffer(species, boundary, 'ux', 0))
-                uy = np.concatenate(boundary_wrapper.get_particle_boundary_buffer(species, boundary, 'uy', 0))
-                uz = np.concatenate(boundary_wrapper.get_particle_boundary_buffer(species, boundary, 'uz', 0))
-                w  = np.concatenate(boundary_wrapper.get_particle_boundary_buffer(species, boundary,  'w', 0))
-            except ValueError:
-                # Here if there are no ions at the boundary from this processor
-                return np.zeros((len(self.ieadf_bin_centers), len(self.iadf_bin_centers)))
-
-            # Calculate the ion energy and base its sign on the z velocity, but if z velocity is zero, use x velocity
-            v2 = (np.square(ux) + np.square(uy) + np.square(uz))
-            E = np.multiply(v2, 0.5 * self.m_ion / constants.q_e)
-
-            # Calculate the ion xy velocity
-            vxy = np.sqrt(np.square(ux) + np.square(uy))
-            # Calculate angle with a negative sign so that left/right wall ieadfs are on the left/right of an energy vs angle plot
-            angle = np.arctan(vxy / uz) * 180 / np.pi
-
-            # Get the histogram (unnormalized)
-            hist, *_ = np.histogram2d(E, angle, bins=[self.ieadf_bin_edges, self.iadf_bin_edges], density=False, weights=w/self.dz)
-
-            # hist = np.ascontiguousarray(hist, dtype=np.float64)
-            hist = np.copy(hist, order='C')
-
-            return hist
-
         # Get the ieadf on the processor
-        hist = get_ieadf(species, boundary)
+        hist = self._get_ieadf(species, boundary)
 
         # Sum the ieadf histograms from all processors
         hist_all = np.zeros_like(hist)
         comm.Allreduce(hist, hist_all, op=mpi.SUM)
         self.ieadf_by_species[species][boundary] = hist_all
+
+    def _get_ieadf(self, species, boundary):
+        '''
+        Gets the ion energy angular distribution function.
+        '''
+        if boundary not in ['z_lo', 'z_hi']:
+            raise ValueError("Boundary must be one of 'z_lo' or 'z_hi'")
+
+        # Set up wrappers
+        boundary_wrapper = particle_containers.ParticleBoundaryBufferWrapper()
+
+        try:
+            ux = np.concatenate(boundary_wrapper.get_particle_boundary_buffer(species, boundary, 'ux', 0))
+            uy = np.concatenate(boundary_wrapper.get_particle_boundary_buffer(species, boundary, 'uy', 0))
+            uz = np.concatenate(boundary_wrapper.get_particle_boundary_buffer(species, boundary, 'uz', 0))
+            w  = np.concatenate(boundary_wrapper.get_particle_boundary_buffer(species, boundary,  'w', 0))
+        except ValueError:
+            # Here if there are no ions at the boundary from this processor
+            return np.zeros((len(self.ieadf_bin_centers), len(self.iadf_bin_centers)))
+
+        # Calculate the ion energy and base its sign on the z velocity, but if z velocity is zero, use x velocity
+        v2 = (np.square(ux) + np.square(uy) + np.square(uz))
+        E = np.multiply(v2, 0.5 * self.m_ion / constants.q_e)
+
+        # Calculate the ion xy velocity
+        vxy = np.sqrt(np.square(ux) + np.square(uy))
+        # Calculate angle with a negative sign so that left/right wall ieadfs are on the left/right of an energy vs angle plot
+        angle = np.arctan(vxy / uz) * 180 / np.pi
+
+        # Get the histogram (unnormalized)
+        hist, *_ = np.histogram2d(E, angle, bins=[self.ieadf_bin_edges, self.iadf_bin_edges], density=False, weights=w/self.dz)
+
+        # hist = np.ascontiguousarray(hist, dtype=np.float64)
+        hist = np.copy(hist, order='C')
+
+        return hist
 
     def clear_ieadf_buffers(self):
         '''
@@ -2272,147 +2272,6 @@ class Diagnostics1D:
         Master function to perform diagnostics at each time step. Should be
         installed at least one step before the first diagnostic step.
         '''
-        def do_time_resolved_diagnostics(tr_idx: int):
-            '''
-            Performs time resolved diagnostics
-
-            Parameters
-            ----------
-            tr_idx: int
-                Index of the time resolved diagnostic
-            '''
-            # Grab temporary dictionary for time resolved diagnostics
-            temp_settings = self.master_diagnostic_dict['time_resolved']
-
-            # Add values
-            if temp_settings['N_e']:
-                self.tr_N_e[tr_idx] = self.N[0]
-            if temp_settings['N_i']:
-                self.tr_N_i[tr_idx] = self.N[1]
-            if temp_settings['W_e']:
-                self.tr_W_e[tr_idx] = self.W[0]
-            if temp_settings['W_i']:
-                self.tr_W_i[tr_idx] = self.W[1]
-            if temp_settings['E_z']:
-                self.tr_E_z[tr_idx] = self.E
-            if temp_settings['phi']:
-                self.tr_phi[tr_idx] = self.phi
-            if temp_settings['Jze']:
-                self.tr_Jze[tr_idx] = self.J[0]
-            if temp_settings['Jzi']:
-                self.tr_Jzi[tr_idx] = self.J[1]
-            if temp_settings['J_d']:
-                self.tr_J_d[tr_idx] = self.J_d
-            if temp_settings['J_w']:
-                self.tr_J_w[tr_idx] = self.J_w
-            if temp_settings['CPe']:
-                self.tr_CPe[tr_idx] = self.P_C[0]
-            if temp_settings['CPi']:
-                self.tr_CPi[tr_idx] = self.P_C[1]
-            if temp_settings['IPe']:
-                self.tr_IPe[tr_idx] = self.P_I[0]
-            if temp_settings['IPi']:
-                self.tr_IPi[tr_idx] = self.P_I[1]
-            if temp_settings['EEdf']:
-                self.tr_EEdf[tr_idx] = self.Edf[0]
-            if temp_settings['IEdf']:
-                self.tr_IEdf[tr_idx] = self.Edf[1]
-
-            # Add time to time array
-            self.tr_times[tr_idx] = self.sim_ext.warpx.gett_new(lev=0)
-
-        def do_time_averaged_diagnostics():
-            '''
-            Performs time averaged diagnostics
-            '''
-            # Grab temporary dictionary for time averaged diagnostics
-            temp_settings = self.master_diagnostic_dict['time_averaged']
-
-            # Add values now, average later
-            if temp_settings['N_e']:
-                self.ta_N_e += self.N[0]
-            if temp_settings['N_i']:
-                self.ta_N_i += self.N[1]
-            if temp_settings['W_e']:
-                self.ta_W_e += self.W[0]
-                self.ta_W_e_collection_mask += self.W_collection_mask[0]
-            if temp_settings['W_i']:
-                self.ta_W_i += self.W[1]
-                self.ta_W_i_collection_mask += self.W_collection_mask[1]
-            if temp_settings['E_z']:
-                self.ta_E_z += self.E
-            if temp_settings['phi']:
-                self.ta_phi += self.phi
-            if temp_settings['Jze']:
-                self.ta_Jze += self.J[0]
-            if temp_settings['Jzi']:
-                self.ta_Jzi += self.J[1]
-            if temp_settings['J_d']:
-                self.ta_J_d += self.J_d
-            if temp_settings['J_w']:
-                self.ta_J_w += self.J_w
-            if temp_settings['CPe']:
-                self.ta_CPe += self.P_C[0]
-            if temp_settings['CPi']:
-                self.ta_CPi += self.P_C[1]
-            if temp_settings['IPe']:
-                self.ta_IPe += self.P_I[0]
-            if temp_settings['IPi']:
-                self.ta_IPi += self.P_I[1]
-            if temp_settings['EEdf']:
-                self.ta_EEdf += self.Edf[0]
-            if temp_settings['IEdf']:
-                self.ta_IEdf += self.Edf[1]
-
-        def do_interval_diagnostics(interval_idx: int):
-            '''
-            Perform diagnostics at an time within interval self.interval_time
-
-            Parameters
-            ----------
-            interval_idx: int
-                Index of interval in self.times_in_interval. Determines which array
-                to update.
-            '''
-            # Grab temporary dictionary for time averaged diagnostics
-            temp_settings = self.master_diagnostic_dict['interval']
-
-            # Add values now, average later
-            if temp_settings['N_e']:
-                self.in_N_e[interval_idx] += self.N[0]
-            if temp_settings['N_i']:
-                self.in_N_i[interval_idx] += self.N[1]
-            if temp_settings['W_e']:
-                self.in_W_e[interval_idx] += self.W[0]
-                self.in_W_e_collection_mask[interval_idx] += self.W_collection_mask[0]
-            if temp_settings['W_i']:
-                self.in_W_i[interval_idx] += self.W[1]
-                self.in_W_i_collection_mask[interval_idx] += self.W_collection_mask[1]
-            if temp_settings['E_z']:
-                self.in_E_z[interval_idx] += self.E
-            if temp_settings['phi']:
-                self.in_phi[interval_idx] += self.phi
-            if temp_settings['Jze']:
-                self.in_Jze[interval_idx] += self.J[0]
-            if temp_settings['Jzi']:
-                self.in_Jzi[interval_idx] += self.J[1]
-            if temp_settings['J_d']:
-                self.in_J_d[interval_idx] += self.J_d
-            if temp_settings['J_w']:
-                self.in_J_w[interval_idx] += self.J_w
-            if temp_settings['CPe']:
-                self.in_CPe[interval_idx] += self.P_C[0]
-            if temp_settings['CPi']:
-                self.in_CPi[interval_idx] += self.P_C[1]
-            if temp_settings['IPe']:
-                self.in_IPe[interval_idx] += self.P_I[0]
-            if temp_settings['IPi']:
-                self.in_IPi[interval_idx] += self.P_I[1]
-            if temp_settings['EEdf']:
-                self.in_EEdf[interval_idx] += self.Edf[0]
-            if temp_settings['IEdf']:
-                self.in_IEdf[interval_idx] += self.Edf[1]
-
         # leave if we are beyond a diagnostic collection
         if self.curr_diag_output >= self.num_outputs:
             return
@@ -2477,12 +2336,12 @@ class Diagnostics1D:
 
         # Perform diagnostics
         if time_resolved:
-            do_time_resolved_diagnostics(self.curr_tr)
+            self.do_time_resolved_diagnostics(self.curr_tr)
             self.curr_tr += 1
         if time_averaged:
-            do_time_averaged_diagnostics()
+            self.do_time_averaged_diagnostics()
         if interval:
-            do_interval_diagnostics(self.curr_slice)
+            self.do_interval_diagnostics(self.curr_slice)
             self.curr_slice += 1
             if self.curr_slice == len(self.in_coll_steps[self.curr_diag_output][self.curr_interval]):
                 self.curr_interval += 1
@@ -2526,6 +2385,147 @@ class Diagnostics1D:
             # Reset diagnostic arrays
             if self.curr_diag_output < self.num_outputs:
                 self.reset_diagnostic_arrays()
+
+    def do_time_resolved_diagnostics(self, tr_idx: int):
+        '''
+        Performs time resolved diagnostics
+
+        Parameters
+        ----------
+        tr_idx: int
+            Index of the time resolved diagnostic
+        '''
+        # Grab temporary dictionary for time resolved diagnostics
+        temp_settings = self.master_diagnostic_dict['time_resolved']
+
+        # Add values
+        if temp_settings['N_e']:
+            self.tr_N_e[tr_idx] = self.N[0]
+        if temp_settings['N_i']:
+            self.tr_N_i[tr_idx] = self.N[1]
+        if temp_settings['W_e']:
+            self.tr_W_e[tr_idx] = self.W[0]
+        if temp_settings['W_i']:
+            self.tr_W_i[tr_idx] = self.W[1]
+        if temp_settings['E_z']:
+            self.tr_E_z[tr_idx] = self.E
+        if temp_settings['phi']:
+            self.tr_phi[tr_idx] = self.phi
+        if temp_settings['Jze']:
+            self.tr_Jze[tr_idx] = self.J[0]
+        if temp_settings['Jzi']:
+            self.tr_Jzi[tr_idx] = self.J[1]
+        if temp_settings['J_d']:
+            self.tr_J_d[tr_idx] = self.J_d
+        if temp_settings['J_w']:
+            self.tr_J_w[tr_idx] = self.J_w
+        if temp_settings['CPe']:
+            self.tr_CPe[tr_idx] = self.P_C[0]
+        if temp_settings['CPi']:
+            self.tr_CPi[tr_idx] = self.P_C[1]
+        if temp_settings['IPe']:
+            self.tr_IPe[tr_idx] = self.P_I[0]
+        if temp_settings['IPi']:
+            self.tr_IPi[tr_idx] = self.P_I[1]
+        if temp_settings['EEdf']:
+            self.tr_EEdf[tr_idx] = self.Edf[0]
+        if temp_settings['IEdf']:
+            self.tr_IEdf[tr_idx] = self.Edf[1]
+
+        # Add time to time array
+        self.tr_times[tr_idx] = self.sim_ext.warpx.gett_new(lev=0)
+
+    def do_time_averaged_diagnostics(self):
+        '''
+        Performs time averaged diagnostics
+        '''
+        # Grab temporary dictionary for time averaged diagnostics
+        temp_settings = self.master_diagnostic_dict['time_averaged']
+
+        # Add values now, average later
+        if temp_settings['N_e']:
+            self.ta_N_e += self.N[0]
+        if temp_settings['N_i']:
+            self.ta_N_i += self.N[1]
+        if temp_settings['W_e']:
+            self.ta_W_e += self.W[0]
+            self.ta_W_e_collection_mask += self.W_collection_mask[0]
+        if temp_settings['W_i']:
+            self.ta_W_i += self.W[1]
+            self.ta_W_i_collection_mask += self.W_collection_mask[1]
+        if temp_settings['E_z']:
+            self.ta_E_z += self.E
+        if temp_settings['phi']:
+            self.ta_phi += self.phi
+        if temp_settings['Jze']:
+            self.ta_Jze += self.J[0]
+        if temp_settings['Jzi']:
+            self.ta_Jzi += self.J[1]
+        if temp_settings['J_d']:
+            self.ta_J_d += self.J_d
+        if temp_settings['J_w']:
+            self.ta_J_w += self.J_w
+        if temp_settings['CPe']:
+            self.ta_CPe += self.P_C[0]
+        if temp_settings['CPi']:
+            self.ta_CPi += self.P_C[1]
+        if temp_settings['IPe']:
+            self.ta_IPe += self.P_I[0]
+        if temp_settings['IPi']:
+            self.ta_IPi += self.P_I[1]
+        if temp_settings['EEdf']:
+            self.ta_EEdf += self.Edf[0]
+        if temp_settings['IEdf']:
+            self.ta_IEdf += self.Edf[1]
+
+    def do_interval_diagnostics(self, interval_idx: int):
+        '''
+        Perform diagnostics at an time within interval self.interval_time
+
+        Parameters
+        ----------
+        interval_idx: int
+            Index of interval in self.times_in_interval. Determines which array
+            to update.
+        '''
+        # Grab temporary dictionary for time averaged diagnostics
+        temp_settings = self.master_diagnostic_dict['interval']
+
+        # Add values now, average later
+        if temp_settings['N_e']:
+            self.in_N_e[interval_idx] += self.N[0]
+        if temp_settings['N_i']:
+            self.in_N_i[interval_idx] += self.N[1]
+        if temp_settings['W_e']:
+            self.in_W_e[interval_idx] += self.W[0]
+            self.in_W_e_collection_mask[interval_idx] += self.W_collection_mask[0]
+        if temp_settings['W_i']:
+            self.in_W_i[interval_idx] += self.W[1]
+            self.in_W_i_collection_mask[interval_idx] += self.W_collection_mask[1]
+        if temp_settings['E_z']:
+            self.in_E_z[interval_idx] += self.E
+        if temp_settings['phi']:
+            self.in_phi[interval_idx] += self.phi
+        if temp_settings['Jze']:
+            self.in_Jze[interval_idx] += self.J[0]
+        if temp_settings['Jzi']:
+            self.in_Jzi[interval_idx] += self.J[1]
+        if temp_settings['J_d']:
+            self.in_J_d[interval_idx] += self.J_d
+        if temp_settings['J_w']:
+            self.in_J_w[interval_idx] += self.J_w
+        if temp_settings['CPe']:
+            self.in_CPe[interval_idx] += self.P_C[0]
+        if temp_settings['CPi']:
+            self.in_CPi[interval_idx] += self.P_C[1]
+        if temp_settings['IPe']:
+            self.in_IPe[interval_idx] += self.P_I[0]
+        if temp_settings['IPi']:
+            self.in_IPi[interval_idx] += self.P_I[1]
+        if temp_settings['EEdf']:
+            self.in_EEdf[interval_idx] += self.Edf[0]
+        if temp_settings['IEdf']:
+            self.in_IEdf[interval_idx] += self.Edf[1]
 
     def reset_diagnostic_arrays(self):
         '''
@@ -2615,242 +2615,242 @@ class Diagnostics1D:
     ###########################################################################
     # Saving Functions                                                        #
     ###########################################################################
+    def _finalize_diagnostic_data(self):
+        '''
+        Finalize diagnostic data before saving
+        '''
+        # Grab species names
+        species = self.species_names
+
+        # Multiply by the time factor to get ionization rate
+        if self.Riz_switch and self.Riz_diag_counter == 0:
+            factor = 1.0 / (self.Riz_collection_time * self.dz)
+            for spec in species[1:]:
+                self.Riz_by_species[spec] *= factor
+
+        # Grab temporary dictionary for time resolved diagnostics
+        active = self.master_diagnostic_dict['time_resolved']
+        # Convert to correct units
+        # if active['N_e']:
+        #     self.tr_N_e /= self.charge_by_name[species[0]]
+        # if active['N_i']:
+        #     self.tr_N_i /= self.charge_by_name[species[1]]
+        # Convert to correct units
+        if active['N_e']:
+            self.tr_N_e /= self.dz
+        if active['N_i']:
+            self.tr_N_i /= self.dz
+        if active['W_e']:
+            v2_factor = self.mass_by_name[species[0]] / 2.0 / constants.q_e
+            self.tr_W_e *= v2_factor
+        if active['W_i']:
+            v2_factor = self.mass_by_name[species[1]] / 2.0 / constants.q_e
+            self.tr_W_i *= v2_factor
+        if active['Jze']:
+            Jz_factor = self.charge_by_name[species[0]] / self.dz
+            self.tr_Jze *= Jz_factor
+        if active['Jzi']:
+            Jz_factor = self.charge_by_name[species[1]] / self.dz
+            self.tr_Jzi *= Jz_factor
+        if active['J_d']:
+            self.tr_J_d *= constants.ep0 / self.dt
+        if active['J_w']:
+            self.tr_J_w *= constants.q_e / self.dt
+        if active['CPe']:
+            CP_factor = self.charge_by_name[species[0]] / self.dz
+            self.tr_CPe *= CP_factor
+        if active['CPi']:
+            CP_factor = self.charge_by_name[species[1]] / self.dz
+            self.tr_CPi *= CP_factor
+        if active['IPe']:
+            IP_factor = self.charge_by_name[species[0]] / self.dz
+            self.tr_IPe *= IP_factor
+        if active['IPi']:
+            IP_factor = self.charge_by_name[species[1]] / self.dz
+            self.tr_IPi *= IP_factor
+
+        # Grab temporary dictionary for power diagnostics
+        active = self.tr_power_dict
+        if active['Pin_vst']:
+            self.tr_Pin_vst = np.zeros(len(self.tr_times))
+            for time_idx in range(len(self.tr_times)):
+                self.tr_Pin_vst[time_idx] = - (self.tr_Jzi[time_idx][-1] + self.tr_Jze[time_idx][-1]) * self.tr_phi[time_idx][-1]
+        if active['CPe_vst'] or active['CPi_vst']:
+            E_on_nodes = np.zeros_like(self.tr_phi)
+            for time_idx in range(len(self.tr_times)):
+                E_on_nodes[time_idx] = -np.gradient(self.tr_phi[time_idx], self.dz)
+        if active['CPe_vst']:
+            self.tr_CPe_vst = np.zeros(len(self.tr_times))
+            for time_idx in range(len(self.tr_times)):
+                self.tr_CPe_vst[time_idx] = np.trapz(E_on_nodes[time_idx] * self.tr_Jze[time_idx], self.nodes)
+        if active['CPi_vst']:
+            self.tr_CPi_vst = np.zeros(len(self.tr_times))
+            for time_idx in range(len(self.tr_times)):
+                self.tr_CPi_vst[time_idx] = np.trapz(E_on_nodes[time_idx] * self.tr_Jzi[time_idx], self.nodes)
+        if active['IPe_vst']:
+            self.tr_IPe_vst = np.zeros(len(self.tr_times))
+            for time_idx in range(len(self.tr_times)):
+                self.tr_IPe_vst[time_idx] = np.trapz(self.tr_IPe[time_idx], self.nodes)
+        if active['IPi_vst']:
+            self.tr_IPi_vst = np.zeros(len(self.tr_times))
+            for time_idx in range(len(self.tr_times)):
+                self.tr_IPi_vst[time_idx] = np.trapz(self.tr_IPi[time_idx], self.nodes)
+
+        # Grab temporary dictionary for time averaged diagnostics
+        active = self.master_diagnostic_dict['time_averaged']
+        collections = self.ta_coll[self.curr_diag_output]
+        if active['N_e']:
+            self.ta_N_e /= collections * self.dz
+            # self.ta_N_e /= self.charge_by_name[species[0]]
+        if active['N_i']:
+            self.ta_N_i /= collections * self.dz
+            # self.ta_N_i /= self.charge_by_name[species[1]]
+        if active['W_e']:
+            v2_factor = self.mass_by_name[species[0]] / 2.0 / constants.q_e
+            self.ta_W_e = np.divide(self.ta_W_e * v2_factor, self.ta_W_e_collection_mask,
+                                    out=np.zeros_like(self.ta_W_e),
+                                    where=self.ta_W_e_collection_mask!=0)
+        if active['W_i']:
+            v2_factor = self.mass_by_name[species[1]] / 2.0 / constants.q_e
+            self.ta_W_i = np.divide(self.ta_W_i * v2_factor, self.ta_W_i_collection_mask,
+                                    out=np.zeros_like(self.ta_W_i),
+                                    where=self.ta_W_i_collection_mask!=0)
+        if active['E_z']:
+            self.ta_E_z /= collections
+        if active['phi']:
+            self.ta_phi /= collections
+        if active['Jze']:
+            Jz_factor = self.charge_by_name[species[0]] / self.dz
+            self.ta_Jze *= Jz_factor / collections
+        if active['Jzi']:
+            Jz_factor = self.charge_by_name[species[1]] / self.dz
+            self.ta_Jzi *= Jz_factor / collections
+        if active['J_d']:
+            Jd_factor = constants.ep0 / self.dt
+            self.ta_J_d *= Jd_factor / collections
+        if active['J_w']:
+            Jw_factor = constants.q_e / self.dt
+            self.ta_J_w *= Jw_factor / collections
+        if active['CPe']:
+            CP_factor = self.charge_by_name[species[0]] / self.dz
+            self.ta_CPe *= CP_factor / collections
+        if active['CPi']:
+            CP_factor = self.charge_by_name[species[1]] / self.dz
+            self.ta_CPi *= CP_factor / collections
+        if active['IPe']:
+            IP_factor = self.charge_by_name[species[0]] / self.dz
+            self.ta_IPe *= IP_factor / collections
+        if active['IPi']:
+            IP_factor = self.charge_by_name[species[1]] / self.dz
+            self.ta_IPi *= IP_factor / collections
+        if active['EEdf']:
+            self.ta_EEdf /= collections
+        if active['IEdf']:
+            self.ta_IEdf /= collections
+
+        # Grab temporary dictionary for interval diagnostics
+        active = self.master_diagnostic_dict['interval']
+        if active['N_e']:
+            for ii in range(len(self.in_slices)):
+                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                    continue
+                self.in_N_e[ii] /= len(self.in_coll_steps[self.curr_diag_output]) * self.dz
+                # self.in_N_e[ii] /= self.charge_by_name[species[0]]
+        if active['N_i']:
+            for ii in range(len(self.in_slices)):
+                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                    continue
+                self.in_N_i[ii] /= len(self.in_coll_steps[self.curr_diag_output]) * self.dz
+                # self.in_N_i[ii] /= self.charge_by_name[species[1]]
+        if active['W_e']:
+            v2_factor = self.mass_by_name[species[0]] / 2.0 / constants.q_e
+            for ii in range(len(self.in_slices)):
+                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                    continue
+                self.in_W_e[ii] = np.divide(self.in_W_e[ii] * v2_factor, self.in_W_e_collection_mask[ii],
+                                            out=np.zeros_like(self.in_W_e[ii]),
+                                            where=self.in_W_e_collection_mask[ii]!=0)
+        if active['W_i']:
+            v2_factor = self.mass_by_name[species[1]] / 2.0 / constants.q_e
+            for ii in range(len(self.in_slices)):
+                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                    continue
+                self.in_W_i[ii] = np.divide(self.in_W_i[ii] * v2_factor, self.in_W_i_collection_mask[ii],
+                                            out=np.zeros_like(self.in_W_i[ii]),
+                                            where=self.in_W_i_collection_mask[ii]!=0)
+        if active['E_z']:
+            for ii in range(len(self.in_slices)):
+                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                    continue
+                self.in_E_z[ii] /= len(self.in_coll_steps[self.curr_diag_output])
+        if active['phi']:
+            for ii in range(len(self.in_slices)):
+                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                    continue
+                self.in_phi[ii] /= len(self.in_coll_steps[self.curr_diag_output])
+        if active['Jze']:
+            Jz_factor = self.charge_by_name[species[0]] / self.dz
+            for ii in range(len(self.in_slices)):
+                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                    continue
+                self.in_Jze[ii] *= Jz_factor / len(self.in_coll_steps[self.curr_diag_output])
+        if active['Jzi']:
+            Jz_factor = self.charge_by_name[species[1]] / self.dz
+            for ii in range(len(self.in_slices)):
+                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                    continue
+                self.in_Jzi[ii] *= Jz_factor / len(self.in_coll_steps[self.curr_diag_output])
+        if active['J_d']:
+            Jd_factor = constants.ep0 / self.dt
+            for ii in range(len(self.in_slices)):
+                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                    continue
+                self.in_J_d[ii] *= Jd_factor / len(self.in_coll_steps[self.curr_diag_output])
+        if active['J_w']:
+            Jw_factor = constants.q_e / self.dt
+            for ii in range(len(self.in_slices)):
+                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                    continue
+                self.in_J_w[ii] *= Jw_factor / len(self.in_coll_steps[self.curr_diag_output])
+        if active['IPe']:
+            IP_factor = self.charge_by_name[species[0]] / self.dz
+            for ii in range(len(self.in_slices)):
+                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                    continue
+                self.in_IPe[ii] *= IP_factor / len(self.in_coll_steps[self.curr_diag_output])
+        if active['IPi']:
+            IP_factor = self.charge_by_name[species[1]] / self.dz
+            for ii in range(len(self.in_slices)):
+                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                    continue
+                self.in_IPi[ii] *= IP_factor / len(self.in_coll_steps[self.curr_diag_output])
+        if active['CPe']:
+            CP_factor = self.charge_by_name[species[0]] / self.dz
+            for ii in range(len(self.in_slices)):
+                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                    continue
+                self.in_CPe[ii] *= CP_factor / len(self.in_coll_steps[self.curr_diag_output])
+        if active['CPi']:
+            CP_factor = self.charge_by_name[species[1]] / self.dz
+            for ii in range(len(self.in_slices)):
+                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                    continue
+                self.in_CPi[ii] *= CP_factor / len(self.in_coll_steps[self.curr_diag_output])
+        if active['EEdf']:
+            for ii in range(len(self.in_slices)):
+                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                    continue
+                self.in_EEdf[ii] /= len(self.in_coll_steps[self.curr_diag_output])
+        if active['IEdf']:
+            for ii in range(len(self.in_slices)):
+                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                    continue
+                self.in_IEdf[ii] /= len(self.in_coll_steps[self.curr_diag_output])
+
     def save_diagnostic_data(self):
         '''
         Save diagnostic data at the current time step
         '''
-        def finalize_diagnostic_data():
-            '''
-            Finalize diagnostic data before saving
-            '''
-            # Grab species names
-            species = self.species_names
-
-            # Multiply by the time factor to get ionization rate
-            if self.Riz_switch and self.Riz_diag_counter == 0:
-                factor = 1.0 / (self.Riz_collection_time * self.dz)
-                for spec in species[1:]:
-                    self.Riz_by_species[spec] *= factor
-
-            # Grab temporary dictionary for time resolved diagnostics
-            active = self.master_diagnostic_dict['time_resolved']
-            # Convert to correct units
-            # if active['N_e']:
-            #     self.tr_N_e /= self.charge_by_name[species[0]]
-            # if active['N_i']:
-            #     self.tr_N_i /= self.charge_by_name[species[1]]
-            # Convert to correct units
-            if active['N_e']:
-                self.tr_N_e /= self.dz
-            if active['N_i']:
-                self.tr_N_i /= self.dz
-            if active['W_e']:
-                v2_factor = self.mass_by_name[species[0]] / 2.0 / constants.q_e
-                self.tr_W_e *= v2_factor
-            if active['W_i']:
-                v2_factor = self.mass_by_name[species[1]] / 2.0 / constants.q_e
-                self.tr_W_i *= v2_factor
-            if active['Jze']:
-                Jz_factor = self.charge_by_name[species[0]] / self.dz
-                self.tr_Jze *= Jz_factor
-            if active['Jzi']:
-                Jz_factor = self.charge_by_name[species[1]] / self.dz
-                self.tr_Jzi *= Jz_factor
-            if active['J_d']:
-                self.tr_J_d *= constants.ep0 / self.dt
-            if active['J_w']:
-                self.tr_J_w *= constants.q_e / self.dt
-            if active['CPe']:
-                CP_factor = self.charge_by_name[species[0]] / self.dz
-                self.tr_CPe *= CP_factor
-            if active['CPi']:
-                CP_factor = self.charge_by_name[species[1]] / self.dz
-                self.tr_CPi *= CP_factor
-            if active['IPe']:
-                IP_factor = self.charge_by_name[species[0]] / self.dz
-                self.tr_IPe *= IP_factor
-            if active['IPi']:
-                IP_factor = self.charge_by_name[species[1]] / self.dz
-                self.tr_IPi *= IP_factor
-
-            # Grab temporary dictionary for power diagnostics
-            active = self.tr_power_dict
-            if active['Pin_vst']:
-                self.tr_Pin_vst = np.zeros(len(self.tr_times))
-                for time_idx in range(len(self.tr_times)):
-                    self.tr_Pin_vst[time_idx] = - (self.tr_Jzi[time_idx][-1] + self.tr_Jze[time_idx][-1]) * self.tr_phi[time_idx][-1]
-            if active['CPe_vst'] or active['CPi_vst']:
-                E_on_nodes = np.zeros_like(self.tr_phi)
-                for time_idx in range(len(self.tr_times)):
-                    E_on_nodes[time_idx] = -np.gradient(self.tr_phi[time_idx], self.dz)
-            if active['CPe_vst']:
-                self.tr_CPe_vst = np.zeros(len(self.tr_times))
-                for time_idx in range(len(self.tr_times)):
-                    self.tr_CPe_vst[time_idx] = np.trapz(E_on_nodes[time_idx] * self.tr_Jze[time_idx], self.nodes)
-            if active['CPi_vst']:
-                self.tr_CPi_vst = np.zeros(len(self.tr_times))
-                for time_idx in range(len(self.tr_times)):
-                    self.tr_CPi_vst[time_idx] = np.trapz(E_on_nodes[time_idx] * self.tr_Jzi[time_idx], self.nodes)
-            if active['IPe_vst']:
-                self.tr_IPe_vst = np.zeros(len(self.tr_times))
-                for time_idx in range(len(self.tr_times)):
-                    self.tr_IPe_vst[time_idx] = np.trapz(self.tr_IPe[time_idx], self.nodes)
-            if active['IPi_vst']:
-                self.tr_IPi_vst = np.zeros(len(self.tr_times))
-                for time_idx in range(len(self.tr_times)):
-                    self.tr_IPi_vst[time_idx] = np.trapz(self.tr_IPi[time_idx], self.nodes)
-
-            # Grab temporary dictionary for time averaged diagnostics
-            active = self.master_diagnostic_dict['time_averaged']
-            collections = self.ta_coll[self.curr_diag_output]
-            if active['N_e']:
-                self.ta_N_e /= collections * self.dz
-                # self.ta_N_e /= self.charge_by_name[species[0]]
-            if active['N_i']:
-                self.ta_N_i /= collections * self.dz
-                # self.ta_N_i /= self.charge_by_name[species[1]]
-            if active['W_e']:
-                v2_factor = self.mass_by_name[species[0]] / 2.0 / constants.q_e
-                self.ta_W_e = np.divide(self.ta_W_e * v2_factor, self.ta_W_e_collection_mask,
-                                        out=np.zeros_like(self.ta_W_e),
-                                        where=self.ta_W_e_collection_mask!=0)
-            if active['W_i']:
-                v2_factor = self.mass_by_name[species[1]] / 2.0 / constants.q_e
-                self.ta_W_i = np.divide(self.ta_W_i * v2_factor, self.ta_W_i_collection_mask,
-                                        out=np.zeros_like(self.ta_W_i),
-                                        where=self.ta_W_i_collection_mask!=0)
-            if active['E_z']:
-                self.ta_E_z /= collections
-            if active['phi']:
-                self.ta_phi /= collections
-            if active['Jze']:
-                Jz_factor = self.charge_by_name[species[0]] / self.dz
-                self.ta_Jze *= Jz_factor / collections
-            if active['Jzi']:
-                Jz_factor = self.charge_by_name[species[1]] / self.dz
-                self.ta_Jzi *= Jz_factor / collections
-            if active['J_d']:
-                Jd_factor = constants.ep0 / self.dt
-                self.ta_J_d *= Jd_factor / collections
-            if active['J_w']:
-                Jw_factor = constants.q_e / self.dt
-                self.ta_J_w *= Jw_factor / collections
-            if active['CPe']:
-                CP_factor = self.charge_by_name[species[0]] / self.dz
-                self.ta_CPe *= CP_factor / collections
-            if active['CPi']:
-                CP_factor = self.charge_by_name[species[1]] / self.dz
-                self.ta_CPi *= CP_factor / collections
-            if active['IPe']:
-                IP_factor = self.charge_by_name[species[0]] / self.dz
-                self.ta_IPe *= IP_factor / collections
-            if active['IPi']:
-                IP_factor = self.charge_by_name[species[1]] / self.dz
-                self.ta_IPi *= IP_factor / collections
-            if active['EEdf']:
-                self.ta_EEdf /= collections
-            if active['IEdf']:
-                self.ta_IEdf /= collections
-
-            # Grab temporary dictionary for interval diagnostics
-            active = self.master_diagnostic_dict['interval']
-            if active['N_e']:
-                for ii in range(len(self.in_slices)):
-                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
-                        continue
-                    self.in_N_e[ii] /= len(self.in_coll_steps[self.curr_diag_output]) * self.dz
-                    # self.in_N_e[ii] /= self.charge_by_name[species[0]]
-            if active['N_i']:
-                for ii in range(len(self.in_slices)):
-                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
-                        continue
-                    self.in_N_i[ii] /= len(self.in_coll_steps[self.curr_diag_output]) * self.dz
-                    # self.in_N_i[ii] /= self.charge_by_name[species[1]]
-            if active['W_e']:
-                v2_factor = self.mass_by_name[species[0]] / 2.0 / constants.q_e
-                for ii in range(len(self.in_slices)):
-                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
-                        continue
-                    self.in_W_e[ii] = np.divide(self.in_W_e[ii] * v2_factor, self.in_W_e_collection_mask[ii],
-                                                out=np.zeros_like(self.in_W_e[ii]),
-                                                where=self.in_W_e_collection_mask[ii]!=0)
-            if active['W_i']:
-                v2_factor = self.mass_by_name[species[1]] / 2.0 / constants.q_e
-                for ii in range(len(self.in_slices)):
-                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
-                        continue
-                    self.in_W_i[ii] = np.divide(self.in_W_i[ii] * v2_factor, self.in_W_i_collection_mask[ii],
-                                                out=np.zeros_like(self.in_W_i[ii]),
-                                                where=self.in_W_i_collection_mask[ii]!=0)
-            if active['E_z']:
-                for ii in range(len(self.in_slices)):
-                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
-                        continue
-                    self.in_E_z[ii] /= len(self.in_coll_steps[self.curr_diag_output])
-            if active['phi']:
-                for ii in range(len(self.in_slices)):
-                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
-                        continue
-                    self.in_phi[ii] /= len(self.in_coll_steps[self.curr_diag_output])
-            if active['Jze']:
-                Jz_factor = self.charge_by_name[species[0]] / self.dz
-                for ii in range(len(self.in_slices)):
-                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
-                        continue
-                    self.in_Jze[ii] *= Jz_factor / len(self.in_coll_steps[self.curr_diag_output])
-            if active['Jzi']:
-                Jz_factor = self.charge_by_name[species[1]] / self.dz
-                for ii in range(len(self.in_slices)):
-                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
-                        continue
-                    self.in_Jzi[ii] *= Jz_factor / len(self.in_coll_steps[self.curr_diag_output])
-            if active['J_d']:
-                Jd_factor = constants.ep0 / self.dt
-                for ii in range(len(self.in_slices)):
-                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
-                        continue
-                    self.in_J_d[ii] *= Jd_factor / len(self.in_coll_steps[self.curr_diag_output])
-            if active['J_w']:
-                Jw_factor = constants.q_e / self.dt
-                for ii in range(len(self.in_slices)):
-                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
-                        continue
-                    self.in_J_w[ii] *= Jw_factor / len(self.in_coll_steps[self.curr_diag_output])
-            if active['IPe']:
-                IP_factor = self.charge_by_name[species[0]] / self.dz
-                for ii in range(len(self.in_slices)):
-                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
-                        continue
-                    self.in_IPe[ii] *= IP_factor / len(self.in_coll_steps[self.curr_diag_output])
-            if active['IPi']:
-                IP_factor = self.charge_by_name[species[1]] / self.dz
-                for ii in range(len(self.in_slices)):
-                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
-                        continue
-                    self.in_IPi[ii] *= IP_factor / len(self.in_coll_steps[self.curr_diag_output])
-            if active['CPe']:
-                CP_factor = self.charge_by_name[species[0]] / self.dz
-                for ii in range(len(self.in_slices)):
-                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
-                        continue
-                    self.in_CPe[ii] *= CP_factor / len(self.in_coll_steps[self.curr_diag_output])
-            if active['CPi']:
-                CP_factor = self.charge_by_name[species[1]] / self.dz
-                for ii in range(len(self.in_slices)):
-                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
-                        continue
-                    self.in_CPi[ii] *= CP_factor / len(self.in_coll_steps[self.curr_diag_output])
-            if active['EEdf']:
-                for ii in range(len(self.in_slices)):
-                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
-                        continue
-                    self.in_EEdf[ii] /= len(self.in_coll_steps[self.curr_diag_output])
-            if active['IEdf']:
-                for ii in range(len(self.in_slices)):
-                    if len(self.in_coll_steps[self.curr_diag_output]) == 0:
-                        continue
-                    self.in_IEdf[ii] /= len(self.in_coll_steps[self.curr_diag_output])
-
         # Send ionization data to rank 0
         if self.Riz_switch and self.Riz_diag_counter == self.diag_collections_per_Riz:
             self.collect_Riz()
@@ -2862,7 +2862,7 @@ class Diagnostics1D:
         if comm.rank != 0:
             return
 
-        finalize_diagnostic_data()
+        self._finalize_diagnostic_data()
 
         # If we are saving anywhere other than the end step of a diagnostic
         # output, we save the file as if at diagnostic output -1. This avoids overwriting.
