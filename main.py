@@ -950,6 +950,9 @@ class Diagnostics1D:
         self.curr_interval = 0
         self.curr_slice = 0
 
+        # Save shared diagnostic variables for loop speedup
+        self._save_shared_variables()
+
     ###########################################################################
     # Initialization Functions                                                #
     ###########################################################################
@@ -1108,6 +1111,14 @@ class Diagnostics1D:
         self.E = np.zeros(self.nz)
         self.phi = np.zeros(self.nz + 1)
         self.E_last_step = np.zeros(self.nz)
+
+    def _save_shared_variables(self):
+        '''
+        Save shared diagnostic variables to speed up do_diagnostics
+        '''
+        # Electric field
+        self._Ez_wrapper = fields.EzFPWrapper()
+        self._current_Ez_data = np.zeros(self.nz)
 
     def _calculate_N_collections(self):
         '''
@@ -1754,8 +1765,7 @@ class Diagnostics1D:
         '''
         Return electric field at node points
         '''
-        E_wrapper = fields.EzFPWrapper()
-        self.E = E_wrapper[...]
+        self.E = self._current_Ez_data
 
     def update_phi(self):
         '''
@@ -1882,8 +1892,7 @@ class Diagnostics1D:
             z = np.array([])
 
         # Get the perpendicular field (on the cell centers)
-        Ez_centers = fields.EzFPWrapper()
-        Ez_centers = Ez_centers[...]
+        Ez_centers = self._current_Ez_data
 
         # Get cell index of particles
         cell_idx = np.floor(z / self.dz).astype(int)
@@ -1959,8 +1968,7 @@ class Diagnostics1D:
         '''
         # Save the electric field from the current time step, if not already done
         if not any(dict.get('E_z') for dict in self.master_diagnostic_dict.values()):
-            E_wrapper = fields.EzFPWrapper()
-            self.E = E_wrapper[...]
+            self.E = self._current_Ez_data
 
         # Calculate the displacement current density
         self.J_d = self.E - self.E_last_step
@@ -2315,6 +2323,10 @@ class Diagnostics1D:
             if (step == self.in_coll_steps[self.curr_diag_output][self.curr_interval][self.curr_slice]):
                 interval = True
 
+        # Presave the electric field, if needed
+        if any(d.get(k) for d in self.master_diagnostic_dict.values() for k in ('E_z', 'J_d', 'CPe', 'CPi')) or save_E_last_step:
+            np.copyto(self._current_Ez_data, self._Ez_wrapper[...])
+
         # Update arrays for diagnostics
         if (time_resolved or time_averaged or interval):
             if any(dict.get('N_e') for dict in self.master_diagnostic_dict.values()): self.update_N(self.species_names[0])
@@ -2351,8 +2363,7 @@ class Diagnostics1D:
 
         # Save the electric field for the displacement current
         if save_E_last_step:
-            E_wrapper = fields.EzFPWrapper()
-            self.E_last_step = E_wrapper[...]
+            self.E_last_step = self._current_Ez_data
 
         # Finalize and save diagnostics
         if step == self.diag_stop[self.curr_diag_output]:
