@@ -1372,10 +1372,14 @@ class Diagnostics1D:
         '''
         Set up the time averaged diagnostic steps
         '''
-        # Import simulation parameters
-        if simulation_obj.steps_bw_avg_collections <= 0 or not isinstance(simulation_obj.steps_bw_avg_collections, int):
-            raise ValueError('steps_bw_avg_collections must be greater than zero.')
-        self.diag_time_averaging_steps = simulation_obj.steps_bw_avg_collections
+        # Import time average collection parameters
+        # If steps_bw_avg_collections is not included, default to 1
+        if not hasattr(simulation_obj, 'steps_bw_avg_collections'):
+            self.diag_time_averaging_steps = 1
+        else:
+            if simulation_obj.steps_bw_avg_collections <= 0 or not isinstance(simulation_obj.steps_bw_avg_collections, int):
+                raise ValueError('steps_bw_avg_collections must be greater than zero.')
+            self.diag_time_averaging_steps = simulation_obj.steps_bw_avg_collections
 
     def _save_diagnostic_inputs(self):
         '''
