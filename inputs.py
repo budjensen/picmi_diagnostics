@@ -174,10 +174,13 @@ class CapacitiveDischargeExample(object):
         }
     }
 
-    def __init__(self, verbose=False):
-        '''Get input parameters for the specific case (n) desired.'''
-        # Control verbose (-v) flag output
+    def __init__(self, verbose=False, diag_outfolder='./diags'):
+        '''Get input parameters for the specific case desired.'''
+        # Control verbose output (-v flag)
         self.verbose = verbose
+
+        # Output folder for diagnostics (-d flag)
+        self.diag_outfolder = os.path.abspath(diag_outfolder)
 
         # Case specific input parameters
         self.voltage = f'{self.voltage_rf}*sin(2*pi*{self.freq:.5e}*t)'
@@ -464,7 +467,7 @@ class CapacitiveDischargeExample(object):
             grid = self.grid,
             period = f'{self.start_step}::{(self.max_steps - self.start_step) // 40}',
             data_list = ['phi',f'rho_{ion_name}'],
-            write_dir = './diags',
+            write_dir = self.diag_outfolder,
             warpx_format = 'openpmd',
             warpx_file_min_digits = 8
         )
@@ -473,7 +476,7 @@ class CapacitiveDischargeExample(object):
         checkpoint = picmi.Checkpoint(
             name = 'checkpt',
             period = f'{self.start_step}::{(self.max_steps - self.start_step) // 6}',
-            write_dir = './checkpoints',
+            write_dir = self.diag_outfolder,
             warpx_file_min_digits = 8,
             warpx_file_prefix = f'chkpt'
         )
@@ -491,7 +494,8 @@ class CapacitiveDischargeExample(object):
             self.ICP_heating_source = ICPHeatSource(
                 self,
                 self.sim.extension,
-                ion_spec_names=[ion_name]
+                ion_spec_names=[ion_name],
+                diag_outfolder=self.diag_outfolder
             )
 
         self.SEE_routine = None
@@ -512,7 +516,8 @@ class CapacitiveDischargeExample(object):
             switches=self.diag_switches,
             interval_times=self.interval_diag_times,
             ion_spec_names=[ion_name],
-            restart_checkpoint=self.restart_checkpoint
+            restart_checkpoint=self.restart_checkpoint,
+            diag_outfolder=self.diag_outfolder
         )
 
     #######################################################################
@@ -557,13 +562,18 @@ class CapacitiveDischargeExample(object):
 ### Execute Simulation ###
 ##########################
 parser = argparse.ArgumentParser()
-parser.add_argument(
-    '-v', help='Verbose run, default = False', action='store_true'
-)
+parser.add_argument('-v', '--verbose', help='Verbose run, default = False', action='store_true')
+parser.add_argument('-d', '--diag_outfolder', type=str, default='diags',
+                    help='Output folder for diagnostics, default = diags')
 args, left = parser.parse_known_args()
-sys.argv = sys.argv[:1]+left
+sys.argv = sys.argv[:1] + left # keep other libs able to parse remaining args
+
+# normalize and ensure directory exists
+diag_out = os.path.abspath(args.diag_outfolder)
+os.makedirs(diag_out, exist_ok=True)
 
 run = CapacitiveDischargeExample(
-    verbose=args.v
+    verbose=args.verbose,
+    diag_outfolder=diag_out
 )
 run.run_sim()

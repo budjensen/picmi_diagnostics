@@ -358,7 +358,7 @@ class ICPHeatSource:
             ion_spec_names[0]: constants.q_e
         }
 
-        self.diag_outfolder = diag_outfolder
+        self.diag_outfolder = os.path.abspath(diag_outfolder)
 
         # Initialize
         self._initialize_ICP(simulation_obj=simulation_obj)
@@ -883,7 +883,7 @@ class Diagnostics1D:
                     interval_dict[key] = False
 
         self.num_outputs = simulation_obj.num_diag_steps
-        self.diag_folder = diag_outfolder
+        self.diag_folder = os.path.abspath(diag_outfolder)
 
         # Correct any power dictionary values
         if self.tr_power_dict['CPe_vst'] or self.tr_power_dict['Pin_vst']:
@@ -1145,7 +1145,7 @@ class Diagnostics1D:
             os.makedirs(self.diag_folder)
 
         # Save the number of collections to file
-        self.check_file(f'{self.diag_folder}/N_collections.dat')
+        self._check_file(f'{self.diag_folder}/N_collections.dat')
         with open(f'{self.diag_folder}/N_collections.dat', 'w') as f:
             f.write('Number of Collections\n')
             f.write('---------------------\n')
@@ -1223,8 +1223,8 @@ class Diagnostics1D:
 
         for species in self.species_names[1:]:
             # Check if file exists
-            self.check_file(f'{self.Riz_dir_by_species[species]}/bins_t.npy')
-            self.check_file(f'{self.Riz_dir_by_species[species]}/bins_z.npy')
+            self._check_file(f'{self.Riz_dir_by_species[species]}/bins_t.npy')
+            self._check_file(f'{self.Riz_dir_by_species[species]}/bins_z.npy')
             np.save(f'{self.Riz_dir_by_species[species]}/bins_z.npy', Riz_z_centers)
             np.save(f'{self.Riz_dir_by_species[species]}/bins_t.npy', Riz_time_centers)
 
@@ -1445,19 +1445,19 @@ class Diagnostics1D:
             # Save the ieadf energy bins
             for species in self.species_names[1:]:
                 # Check if file exists
-                self.check_file(f'{self.ieadf_dir_by_species[species]}/bins_eV.npy')
-                self.check_file(f'{self.ieadf_dir_by_species[species]}/bins_deg.npy')
+                self._check_file(f'{self.ieadf_dir_by_species[species]}/bins_eV.npy')
+                self._check_file(f'{self.ieadf_dir_by_species[species]}/bins_deg.npy')
                 np.save(f'{self.ieadf_dir_by_species[species]}/bins_eV.npy', self.ieadf_bin_centers)
                 np.save(f'{self.ieadf_dir_by_species[species]}/bins_deg.npy', self.iadf_bin_centers)
 
         # Save the normal EDF settings
         if any(dict.get('EEdf') for dict in self.master_diagnostic_dict.values()):
             # Save the eedf energy bins
-            self.check_file(f'{self.diag_folder}/eedf_bins_eV.npy')
+            self._check_file(f'{self.diag_folder}/eedf_bins_eV.npy')
             np.save(f'{self.diag_folder}/eedf_bins_eV.npy', self.eedf_bin_centers)
 
         if any(dict.get('IEdf') for dict in self.master_diagnostic_dict.values()):
-            self.check_file(f'{self.diag_folder}/iedf_bins_eV.npy')
+            self._check_file(f'{self.diag_folder}/iedf_bins_eV.npy')
             np.save(f'{self.diag_folder}/iedf_bins_eV.npy', self.iedf_bin_centers)
 
     def _save_cells_and_nodes(self, simulation_obj: CapacitiveDischargeExample):
@@ -1474,14 +1474,14 @@ class Diagnostics1D:
 
         # Make a npy file of cell boundaries
         # Check if file exists
-        self.check_file('diags/nodes.npy')
-        np.save('diags/nodes.npy', self.nodes)
+        self._check_file(f'{self.diag_folder}/nodes.npy')
+        np.save(f'{self.diag_folder}/nodes.npy', self.nodes)
 
         # Make a npy file of cell centers
         z = np.linspace(self.dz / 2, simulation_obj.zmax - self.dz / 2, self.nz)
         # Check if file exists
-        self.check_file('diags/cells.npy')
-        np.save('diags/cells.npy', z)
+        self._check_file(f'{self.diag_folder}/cells.npy')
+        np.save(f'{self.diag_folder}/cells.npy', z)
 
     def _make_particle_dictionaries(self):
         '''
@@ -2964,7 +2964,7 @@ class Diagnostics1D:
     ###########################################################################
     # Helper Functions                                                        #
     ###########################################################################
-    def check_file(self, file_name):
+    def _check_file(self, file_name):
         '''
         If the file exists, rename it to have '_old' before the extension.
         '''

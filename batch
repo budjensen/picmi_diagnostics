@@ -18,5 +18,27 @@ module purge
 module load anaconda3/2024.2
 conda activate warpx_one_node
 
+RUNFILE="Turner_inputs.py"
+DIAGFILE="diags"
+
+# copy the input file to the directory diags
+mkdir -p "$DIAGFILE"
+cp "$RUNFILE" "$DIAGFILE"
+
 # run program
-mpirun -n 8 python Turner_inputs.py
+mpirun -n 8 python "$RUNFILE" -d "$DIAGFILE"
+
+# Parse timing information and print total time in hours (only if simulation completed successfully)
+if [ $? -eq 0 ]; then
+    # Wait a moment to ensure output file is fully written
+    sleep 2
+    TOTAL_TIME=$(grep "TinyProfiler total time" warpx.${SLURM_JOB_ID}.out | awk '{print $7}' | sed 's/e+/E+/g')
+    if [ ! -z "$TOTAL_TIME" ]; then
+        TOTAL_TIME_HOURS=$(python -c "print(f'Total simulation time: {float('$TOTAL_TIME')/3600:.2f} hours')")
+        echo "$TOTAL_TIME_HOURS" >> warpx.${SLURM_JOB_ID}.out
+    else
+        echo "Warning: Could not parse timing information from output" >> warpx.${SLURM_JOB_ID}.out
+    fi
+else
+    echo "Simulation failed with exit code $?" >> warpx.${SLURM_JOB_ID}.out
+fi
