@@ -658,7 +658,8 @@ class Diagnostics1D:
                  interval_times: list = None,
                  ion_spec_names: list = None,
                  diag_outfolder: str = './diags',
-                 restart_checkpoint: bool = False
+                 restart_checkpoint: bool = False,
+                 interval_tolerance: float = 0.0
                 ):
         '''
         Class to perform diagnostics in 1D WarpX simulations. Make sure
@@ -685,6 +686,10 @@ class Diagnostics1D:
             Folder to save diagnostics
         restart_checkpoint: bool, optional
             Whether simulation is restarting from a checkpoint
+        interval_tolerance: float, optional
+            Tolerance factor for interval diagnostics collection. A value of 0.1
+            means collect diagnostics within ±5% of the interval period around
+            the exact collection time.
 
         Notes
         -----
@@ -847,6 +852,7 @@ class Diagnostics1D:
         self.nz = simulation_obj.nz
         self.dz = simulation_obj.dz
         self.nodes = np.linspace(simulation_obj.zmin, simulation_obj.zmax, self.nz + 1)
+        self.interval_tolerance = interval_tolerance
 
         self.species_names = ['electrons']
         if ion_spec_names is not None:
@@ -881,6 +887,27 @@ class Diagnostics1D:
             if len(self.in_slices) == 0:
                 for key in interval_dict:
                     interval_dict[key] = False
+
+        # Validate tolerance to prevent overlapping intervals
+        if len(self.in_slices) > 1:
+            # Check regular gaps between adjacent points
+            regular_gaps = np.diff(self.in_slices)
+
+            # Check wrap-around gap (between last point and first point in next period)
+            wrap_gap = (self.in_slices[0] + 1.0) - self.in_slices[-1]
+
+            # Find the minimum gap considering both regular and wrap-around cases
+            all_gaps = np.append(regular_gaps, wrap_gap)
+            min_gap = np.min(all_gaps)
+
+            # Convert to absolute time and calculate max allowed tolerance
+            max_allowed_tolerance = min_gap
+
+            if self.interval_tolerance >= max_allowed_tolerance:
+                print(f"WARNING: interval_tolerance ({self.interval_tolerance:.4f}) is too large compared to the minimum gap between interval times.")
+                print(f"Setting interval_tolerance to {max_allowed_tolerance * 0.9:.4f} to prevent overlapping intervals.")
+                print(f"Minimum gap is {min_gap:.4f} fractions of a period.")
+                self.interval_tolerance = max_allowed_tolerance * 0.9
 
         self.num_outputs = simulation_obj.num_diag_steps
         self.diag_folder = os.path.abspath(diag_outfolder)
@@ -1253,14 +1280,15 @@ class Diagnostics1D:
 
     def _get_interval_collection_steps(self):
         '''
-        Set up an array containing steps to calculate interval diagnostics.
+        Set up arrays containing steps to calculate interval diagnostics.
 
-        Sets up a list with length equal to the number of diagnostic
-        outputs. Each element of the list is a stack of numpy arrays
-        containing the steps at which interval diagnostics are to be
-        performed for that diagnostic output. The length of the stack
-        is equal to the number of full intervals that fit within the
-        diagnostic output window.
+        This method creates:
+        1. self.in_coll_steps: A list of dictionaries where keys are (interval_idx, slice_idx)
+           tuples and values are lists of time steps for each interval.
+        2. self.in_coll_counts: A list of dictionaries tracking the number of time steps
+           for each interval.
+        3. self.step_to_interval_map: A list of dictionaries mapping time steps directly
+           to their corresponding interval keys for fast lookup.
 
         Example
         -------
@@ -1271,59 +1299,106 @@ class Diagnostics1D:
         len(self.in_coll_steps) = 3
         ```
 
-        and for `ii` in `[0, 1, 2]`:
+        and for `ii` in `[0, 1, 2]`, `self.in_coll_steps[ii]` will be a dictionary
+        mapping interval keys to lists of steps.
 
-        ```
-        len(self.in_coll_steps[ii]) = 4
-        ```
+        For fast lookup, we also create `self.step_to_interval_map[ii]` which maps
+        each step directly to its interval key.
         '''
         self.in_coll_steps = []
+        self.in_coll_counts = []
+        self.step_to_interval_map = []  # Map from step number to interval key
 
         for ii in range(self.num_outputs):
             # Start time of current diag output window
             output_start_t = self.diag_start[ii] * self.dt
             output_end_t = self.diag_stop[ii] * self.dt
 
-            # Initialize collection times
-            collection_times = []
+            # Initialize collection times dictionary
+            # Keys are interval indices, values are lists of collection times
+            collection_times_dict = {}
+            collection_counts_dict = {}
+            step_mapping = {}  # Maps steps to interval keys
 
             # Count number of periods before the diagnostic output
             period_start_collection = int(output_start_t // self.in_period)
 
-            # Get collection times
+            # Get exact collection times
             # NOTE: We only collect for intervals that are fully within the diagnostic output
-            temp_collec_times = (period_start_collection + self.in_slices) * self.in_period
-            while any(temp_collec_times < output_start_t):
-                temp_collec_times += self.in_period
-                if any(temp_collec_times > output_end_t):
-                    self.in_coll_steps.append(np.array([]))
+            exact_collec_times = (period_start_collection + self.in_slices) * self.in_period
+            while any(exact_collec_times < output_start_t):
+                exact_collec_times += self.in_period
+                if any(exact_collec_times > output_end_t):
+                    self.in_coll_steps.append({})
+                    self.in_coll_counts.append({})
+                    self.step_to_interval_map.append({})
                     break
 
-            # Append the first valid collection time
-            collection_times.append(temp_collec_times.copy())
+            # Initialize the collection times dictionary
+            interval_idx = 0
 
-            # Get the times of each interval until output_end_t
-            while collection_times[-1][-1] < output_end_t:
-                temp_collec_times += self.in_period
-                collection_times.append(temp_collec_times.copy())
+            # Calculate tolerance window half-width
+            tolerance_half_width = self.in_period * self.interval_tolerance / 2.0
 
-            # Remove the last collection time if it is beyond the output_end_t
-            if collection_times[-1][-1] > output_end_t:
-                collection_times.pop()
+            while exact_collec_times[-1] <= output_end_t:
+                # For each interval in this period
+                for jj, exact_time in enumerate(exact_collec_times):
+                    # Special case for zero tolerance - only take the single closest step
+                    if self.interval_tolerance == 0.0:
+                        # Find the closest step to exact_time
+                        closest_step = int(round(exact_time / self.dt))
+                        closest_step = max(self.diag_start[ii], min(self.diag_stop[ii], closest_step))
+                        steps_in_window = [closest_step]
+                    else:
+                        # Calculate tolerance window
+                        window_start = exact_time - tolerance_half_width
+                        window_end = exact_time + tolerance_half_width
 
-            # Convert the list of times to a numpy stack
-            if collection_times:
-                collection_times = np.stack(collection_times)
-            else:
-                collection_times = np.array([])
+                        # Skip if window completely outside output window
+                        if window_end < output_start_t or window_start > output_end_t:
+                            continue
 
-            # Convert times to steps
-            collection_steps = np.round(collection_times / self.dt).astype(int)
+                        # Clamp window to output window
+                        window_start = max(window_start, output_start_t)
+                        window_end = min(window_end, output_end_t)
 
-            # Add the steps to the collection array
-            self.in_coll_steps.append(collection_steps)
+                        # Calculate all steps that fall within the window
+                        start_step = max(self.diag_start[ii], int(np.floor(window_start / self.dt)))
+                        end_step = min(self.diag_stop[ii], int(np.ceil(window_end / self.dt)))
+                        steps_in_window = list(range(start_step, end_step + 1))
 
-        # Save the interval collection steps to file
+                    # Store steps in the dictionary with the interval index as key
+                    interval_key = (interval_idx, jj)
+                    collection_times_dict[interval_key] = steps_in_window
+                    collection_counts_dict[interval_key] = len(steps_in_window)
+
+                    # Create a mapping from step number to interval key for fast lookup
+                    for step in steps_in_window:
+                        # If a step is already mapped to an interval, choose the interval
+                        # whose exact collection time is closest to the step time
+                        if step in step_mapping:
+                            # Calculate time difference for current interval
+                            current_diff = abs(exact_time - step * self.dt)
+
+                            # Calculate time difference for previously mapped interval
+                            prev_interval_idx, prev_slice_idx = step_mapping[step]
+                            prev_exact_time = (period_start_collection + prev_interval_idx) * self.in_period + self.in_slices[prev_slice_idx] * self.in_period
+                            prev_diff = abs(prev_exact_time - step * self.dt)
+
+                            # Keep mapping with smallest time difference
+                            if current_diff < prev_diff:
+                                step_mapping[step] = interval_key
+                        else:
+                            step_mapping[step] = interval_key
+
+                # Move to next period
+                exact_collec_times += self.in_period
+                interval_idx += 1
+
+            # Add the steps and counts to the collection arrays
+            self.in_coll_steps.append(collection_times_dict)
+            self.in_coll_counts.append(collection_counts_dict)
+            self.step_to_interval_map.append(step_mapping)        # Save the interval collection steps to file
         if comm.rank != 0:
             return
 
@@ -1333,12 +1408,62 @@ class Diagnostics1D:
         file = os.path.join(self.diag_folder, 'intrvl_collection_steps.dat')
         with open(file, 'w') as f:
             f.write('Interval Collection Steps\n')
+            f.write(f'Interval Tolerance: {self.interval_tolerance}\n')
             for ii in range(self.num_outputs):
                 f.write(f'\nDiagnostic Output #{ii+1}\n')
                 f.write(f'---------------------\n')
-                for jj in range(len(self.in_coll_steps[ii])):
-                    f.write(f'Interval #{jj+1}:\n')
-                    f.write(f'    {self.in_coll_steps[ii][jj]}\n')
+                for (interval_idx, slice_idx), steps in self.in_coll_steps[ii].items():
+                    f.write(f'Interval #{interval_idx+1}, Slice #{slice_idx+1}:\n')
+                    f.write(f'    Steps: {steps}\n')
+                    f.write(f'    Count: {self.in_coll_counts[ii][(interval_idx, slice_idx)]}\n')
+
+            f.write('\nOptimized Step Mapping Info\n')
+            f.write('-------------------------\n')
+            total_steps = 0
+            total_mapped_steps = 0
+
+            # Track steps that were reassigned due to overlap
+            overlap_count = 0
+
+            for ii in range(self.num_outputs):
+                if self.diag_stop[ii] > self.diag_start[ii]:
+                    steps_in_output = self.diag_stop[ii] - self.diag_start[ii] + 1
+                    mapped_steps = len(self.step_to_interval_map[ii])
+                    total_steps += steps_in_output
+                    total_mapped_steps += mapped_steps
+
+                    # Check for overlapping intervals by counting steps in each interval
+                    all_interval_steps = []
+                    for steps_list in self.in_coll_steps[ii].values():
+                        all_interval_steps.extend(steps_list)
+
+                    # Count steps that appear multiple times
+                    step_counts = {}
+                    for step in all_interval_steps:
+                        if step in step_counts:
+                            step_counts[step] += 1
+                        else:
+                            step_counts[step] = 1
+
+                    # Count overlapping steps
+                    overlapping_steps = sum(1 for count in step_counts.values() if count > 1)
+                    overlap_count += overlapping_steps
+
+                    if steps_in_output > 0:
+                        mapping_percent = (mapped_steps / steps_in_output) * 100
+                    else:
+                        mapping_percent = 0
+                    f.write(f'Output #{ii+1}: {mapped_steps}/{steps_in_output} steps mapped ({mapping_percent:.2f}%)\n')
+                    if overlapping_steps > 0:
+                        f.write(f'  {overlapping_steps} steps were in multiple intervals and assigned to closest match\n')
+
+            if total_steps > 0:
+                total_percent = (total_mapped_steps / total_steps) * 100
+            else:
+                total_percent = 0
+            f.write(f'Total: {total_mapped_steps}/{total_steps} steps mapped ({total_percent:.2f}%)\n')
+            if overlap_count > 0:
+                f.write(f'Total overlapping steps: {overlap_count} (assigned to closest interval)\n')
 
     def _get_time_resolved_steps(self, simulation_obj: CapacitiveDischargeExample):
         '''
@@ -1411,7 +1536,8 @@ class Diagnostics1D:
             f.write(f'Number of steps between time average collections={self.diag_time_averaging_steps}\n\n')
 
             f.write(f'Interval period [s]={self.in_period}\n')
-            f.write(f'Times in interval={', '.join(map(str,self.in_slices))}\n\n')
+            f.write(f'Times in interval={', '.join(map(str,self.in_slices))}\n')
+            f.write(f'Interval tolerance={self.interval_tolerance}\n\n')
 
             f.write(f'Output #   |   Start Step   |   Stop Step   |   Start Time   |   Stop Time\n')
             f.write(f'------------------------------------------------------------------------------\n')
@@ -2310,8 +2436,9 @@ class Diagnostics1D:
             save_E_last_step = True
         if self.master_diagnostic_dict['time_averaged']['J_d'] and (next_step - self.diag_start[self.curr_diag_output]) % self.diag_time_averaging_steps == 0:
             save_E_last_step = True
-        if len(self.in_coll_steps[self.curr_diag_output]) > 0:
-            if self.master_diagnostic_dict['interval']['J_d'] and next_step == self.in_coll_steps[self.curr_diag_output][self.curr_interval][self.curr_slice]:
+        if self.step_to_interval_map[self.curr_diag_output]:
+            # Fast lookup: check if next_step is in the step_to_interval_map
+            if next_step in self.step_to_interval_map[self.curr_diag_output] and self.master_diagnostic_dict['interval']['J_d']:
                 save_E_last_step = True
 
         # Go through each diagnostic type and determine if we need to update
@@ -2323,9 +2450,13 @@ class Diagnostics1D:
             time_resolved = True
         if any(self.master_diagnostic_dict['time_averaged'].values()) and step >= self.diag_start[self.curr_diag_output] and ((step - self.diag_start[self.curr_diag_output]) % self.diag_time_averaging_steps == 0):
             time_averaged = True
-        if any(self.master_diagnostic_dict['interval'].values()) and len(self.in_coll_steps[self.curr_diag_output]) > 0:
-            if (step == self.in_coll_steps[self.curr_diag_output][self.curr_interval][self.curr_slice]):
+        if any(self.master_diagnostic_dict['interval'].values()) and self.step_to_interval_map[self.curr_diag_output]:
+            # Fast lookup: check if current step is in the step_to_interval_map
+            if step in self.step_to_interval_map[self.curr_diag_output]:
                 interval = True
+                # The current_interval_key is a tuple (interval_idx, slice_idx)
+                # Extract the slice_idx for the diagnostic collection, while ignoring the interval_idx (not using at this time)
+                _, slice_idx = self.step_to_interval_map[self.curr_diag_output][step]
 
         # Presave the electric field, if needed
         if any(d.get(k) for d in self.master_diagnostic_dict.values() for k in ('E_z', 'J_d', 'CPe', 'CPi')) or save_E_last_step:
@@ -2357,13 +2488,7 @@ class Diagnostics1D:
         if time_averaged:
             self.do_time_averaged_diagnostics()
         if interval:
-            self.do_interval_diagnostics(self.curr_slice)
-            self.curr_slice += 1
-            if self.curr_slice == len(self.in_coll_steps[self.curr_diag_output][self.curr_interval]):
-                self.curr_interval += 1
-                self.curr_slice = 0
-                if self.curr_interval == len(self.in_coll_steps[self.curr_diag_output]):
-                    self.curr_interval = 0
+            self.do_interval_diagnostics(slice_idx)
 
         # Save the electric field for the displacement current
         if save_E_last_step:
@@ -2765,22 +2890,32 @@ class Diagnostics1D:
 
         # Grab temporary dictionary for interval diagnostics
         active = self.master_diagnostic_dict['interval']
+
+        # Create a dictionary to count collections for each slice
+        collection_counts = {}
+        for ii in range(len(self.in_slices)):
+            collection_counts[ii] = 0
+
+        # Count the number of collections for each slice
+        for (_, slice_idx), count in self.in_coll_counts[self.curr_diag_output].items():
+            collection_counts[slice_idx] += count
+
         if active['N_e']:
             for ii in range(len(self.in_slices)):
-                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                     continue
-                self.in_N_e[ii] /= len(self.in_coll_steps[self.curr_diag_output]) * self.dz
+                self.in_N_e[ii] /= collection_counts[ii] * self.dz
                 # self.in_N_e[ii] /= self.charge_by_name[species[0]]
         if active['N_i']:
             for ii in range(len(self.in_slices)):
-                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                     continue
-                self.in_N_i[ii] /= len(self.in_coll_steps[self.curr_diag_output]) * self.dz
+                self.in_N_i[ii] /= collection_counts[ii] * self.dz
                 # self.in_N_i[ii] /= self.charge_by_name[species[1]]
         if active['W_e']:
             v2_factor = self.mass_by_name[species[0]] / 2.0 / constants.q_e
             for ii in range(len(self.in_slices)):
-                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                     continue
                 self.in_W_e[ii] = np.divide(self.in_W_e[ii] * v2_factor, self.in_W_e_collection_mask[ii],
                                             out=np.zeros_like(self.in_W_e[ii]),
@@ -2788,79 +2923,79 @@ class Diagnostics1D:
         if active['W_i']:
             v2_factor = self.mass_by_name[species[1]] / 2.0 / constants.q_e
             for ii in range(len(self.in_slices)):
-                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                     continue
                 self.in_W_i[ii] = np.divide(self.in_W_i[ii] * v2_factor, self.in_W_i_collection_mask[ii],
                                             out=np.zeros_like(self.in_W_i[ii]),
                                             where=self.in_W_i_collection_mask[ii]!=0)
         if active['E_z']:
             for ii in range(len(self.in_slices)):
-                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                     continue
-                self.in_E_z[ii] /= len(self.in_coll_steps[self.curr_diag_output])
+                self.in_E_z[ii] /= collection_counts[ii]
         if active['phi']:
             for ii in range(len(self.in_slices)):
-                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                     continue
-                self.in_phi[ii] /= len(self.in_coll_steps[self.curr_diag_output])
+                self.in_phi[ii] /= collection_counts[ii]
         if active['Jze']:
             Jz_factor = self.charge_by_name[species[0]] / self.dz
             for ii in range(len(self.in_slices)):
-                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                     continue
-                self.in_Jze[ii] *= Jz_factor / len(self.in_coll_steps[self.curr_diag_output])
+                self.in_Jze[ii] *= Jz_factor / collection_counts[ii]
         if active['Jzi']:
             Jz_factor = self.charge_by_name[species[1]] / self.dz
             for ii in range(len(self.in_slices)):
-                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                     continue
-                self.in_Jzi[ii] *= Jz_factor / len(self.in_coll_steps[self.curr_diag_output])
+                self.in_Jzi[ii] *= Jz_factor / collection_counts[ii]
         if active['J_d']:
             Jd_factor = constants.ep0 / self.dt
             for ii in range(len(self.in_slices)):
-                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                     continue
-                self.in_J_d[ii] *= Jd_factor / len(self.in_coll_steps[self.curr_diag_output])
+                self.in_J_d[ii] *= Jd_factor / collection_counts[ii]
         if active['J_w']:
             Jw_factor = constants.q_e / self.dt
             for ii in range(len(self.in_slices)):
-                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                     continue
-                self.in_J_w[ii] *= Jw_factor / len(self.in_coll_steps[self.curr_diag_output])
+                self.in_J_w[ii] *= Jw_factor / collection_counts[ii]
         if active['IPe']:
             IP_factor = self.charge_by_name[species[0]] / self.dz
             for ii in range(len(self.in_slices)):
-                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                     continue
-                self.in_IPe[ii] *= IP_factor / len(self.in_coll_steps[self.curr_diag_output])
+                self.in_IPe[ii] *= IP_factor / collection_counts[ii]
         if active['IPi']:
             IP_factor = self.charge_by_name[species[1]] / self.dz
             for ii in range(len(self.in_slices)):
-                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                     continue
-                self.in_IPi[ii] *= IP_factor / len(self.in_coll_steps[self.curr_diag_output])
+                self.in_IPi[ii] *= IP_factor / collection_counts[ii]
         if active['CPe']:
             CP_factor = self.charge_by_name[species[0]] / self.dz
             for ii in range(len(self.in_slices)):
-                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                     continue
-                self.in_CPe[ii] *= CP_factor / len(self.in_coll_steps[self.curr_diag_output])
+                self.in_CPe[ii] *= CP_factor / collection_counts[ii]
         if active['CPi']:
             CP_factor = self.charge_by_name[species[1]] / self.dz
             for ii in range(len(self.in_slices)):
-                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                     continue
-                self.in_CPi[ii] *= CP_factor / len(self.in_coll_steps[self.curr_diag_output])
+                self.in_CPi[ii] *= CP_factor / collection_counts[ii]
         if active['EEdf']:
             for ii in range(len(self.in_slices)):
-                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                     continue
-                self.in_EEdf[ii] /= len(self.in_coll_steps[self.curr_diag_output])
+                self.in_EEdf[ii] /= collection_counts[ii]
         if active['IEdf']:
             for ii in range(len(self.in_slices)):
-                if len(self.in_coll_steps[self.curr_diag_output]) == 0:
+                if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                     continue
-                self.in_IEdf[ii] /= len(self.in_coll_steps[self.curr_diag_output])
+                self.in_IEdf[ii] /= collection_counts[ii]
 
     def save_diagnostic_data(self):
         '''
