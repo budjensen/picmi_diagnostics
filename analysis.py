@@ -2366,6 +2366,192 @@ class Analysis:
                     self.load_time_averaged(fld)
                 self.avg_ta_data[fld] = np.mean([self.ta_data[fld][coll] for coll in self.ta_data[fld]], axis=0)
 
+    def avg_intervals_over_time(self, field: str = None):
+        '''
+        Average interval data over all collection averaged slices to
+        create a collection-averaged time-averaged profile. Array is
+        saved to self.avg_time_avg_in_data[field]
+
+        Parameters
+        ----------
+        field : str, default=None
+            Field to average over time. If None, all fields are averaged.
+        '''
+        if not self.in_bool:
+            raise ValueError('Interval data not found')
+        # Average interval data if not already done
+        if not hasattr(self, 'avg_in_data'):
+            self.avg_intervals(field)
+        if field not in self.avg_in_data:
+            self.avg_intervals(field)
+
+        # Create attribute to store time-averaged interval data if it doesn't exist
+        if not hasattr(self, 'avg_time_avg_in_data'):
+            self.avg_time_avg_in_data = {}
+
+        # Get list of fields to average
+        fields = [field] if field is not None else self.in_fields
+
+        for f in fields:
+            self.avg_time_avg_in_data[f] = np.zeros_like(self.avg_in_data[f][0])
+            for ii in range(len(self.in_times)):
+                self.avg_time_avg_in_data[f] += self.avg_in_data[f][ii] / len(self.in_times)
+
+    def avg_intervals_by_collection_over_time(self, field: str):
+        '''
+        Average interval data for each collection over all slices to
+        create a time-averaged profile for each collection. Array is
+        saved to self.time_avg_in_data[field][diag_collection]
+
+        Parameters
+        ----------
+        field : str
+            Field to get fully averaged data for
+        '''
+        if not self.in_bool:
+            raise ValueError('Interval data not found')
+        # Check if field has been loaded into self.interval_data
+        if any([np.array_equal(self.in_data[field][coll][0], 0) for coll in self.in_data[field]]):
+            self.load_intervals(field)
+
+        # Create attribute to store time-averaged interval collection data if it doesn't exist
+        if not hasattr(self, 'time_avg_in_data'):
+            self.time_avg_in_data = {}
+
+        # Get list of fields to average
+        fields = [field] if field is not None else self.in_fields
+        for f in fields:
+            # Make a dictionary where each key is a diagnostic collection
+            self.time_avg_in_data[f] = {}
+            for coll in self.in_colls:
+                # Each dictionary item is an array of the interval slices time averaged
+                self.time_avg_in_data[f][coll] = np.zeros_like(self.in_data[f][coll][0])
+                for ii in range(len(self.in_times)):
+                    self.time_avg_in_data[f][coll] += self.in_data[f][coll][ii] / len(self.in_times)
+
+    def plot_intervals_time_averaged(self,
+                                    field: str,
+                                    plot_all_coll: bool = True,
+                                    edf_log_plot = False,
+                                    ax = None,
+                                    dpi: int = 150,
+                                    cmap: str = 'GnBu'):
+        '''
+        Plot time-averaged interval data for a field
+
+        Parameters
+        ----------
+        field : str
+            Field to plot
+        plot_all_coll : bool, default=True
+            Plot all collections in the background if True
+        edf_log_plot : bool, default=False
+            Whether to plot the EDF in log scale on the y-axis
+        ax : matplotlib.axes.Axes, default=None
+            Axes to plot on. If None, creates a new figure and axes.
+        dpi : int, default=150
+            DPI of the plot if creating a new figure
+        cmap : str, default='GnBu'
+            Colormap to use for collections
+
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+            The figure object
+        ax : matplotlib.axes.Axes
+            The axes object
+        '''
+        if not self.in_bool:
+            raise ValueError('Interval data not found')
+        # Make average data by collection, if requested
+        if plot_all_coll:
+            if not hasattr(self, 'time_avg_in_data'):
+                self.avg_intervals_by_collection_over_time(field)
+            if field not in self.time_avg_in_data:
+                self.avg_intervals_by_collection_over_time(field)
+        # Make average data
+        if not hasattr(self, 'avg_time_avg_in_data'):
+            self.avg_intervals_over_time(field)
+        if field not in self.avg_time_avg_in_data:
+            self.avg_intervals_over_time(field)
+
+        if edf_log_plot:
+            if field.startswith('EEdf'):
+                edf_type = 'EEdf'
+            elif field.startswith('IEdf'):
+                edf_type = 'IEdf'
+
+        return_fig = False
+        if ax is None:
+            fig, ax = plt.subplots(1,1, dpi=dpi)
+            return_fig = True
+
+        # Get x-axis data
+        if len(self.avg_time_avg_in_data[field]) == len(self.cells):
+            x = self.cells
+            xlabel = 'Position [m]'
+        elif len(self.avg_time_avg_in_data[field]) == len(self.nodes):
+            x = self.nodes
+            xlabel = 'Position [m]'
+        elif field.startswith('EEdf'):
+            x = self.edf_energy['EEdf']
+            xlabel = 'Energy [eV]'
+        elif field.startswith('IEdf'):
+            x = self.edf_energy['IEdf']
+            xlabel = 'Energy [eV]'
+        else:
+            raise ValueError('Could not get x-axis data')
+
+        if plot_all_coll:
+            num = len(self.time_avg_in_data[field])
+            for coll in self.time_avg_in_data[field]:
+                data = self.time_avg_in_data[field][coll]
+                if edf_log_plot:
+                    data /= self.edf_energy[edf_type] ** (0.5)
+                ax.plot(x, self.time_avg_in_data[field][coll],
+                        label = f'Collection {coll}',
+                        alpha = 0.4,
+                        color = self._color_chooser(coll, num, cmap=cmap))
+
+        if not return_fig and not plot_all_coll:
+            # Determine a unique linestyle
+            num_lines = len([line for line in ax.lines if line.get_label().startswith('Average')])
+            styles = ['solid', 'dotted', 'dashdot', 'dashed']
+            avg_linestyle = styles[num_lines % len(styles)]
+
+            avg_label = f'Average ({num_lines + 1})'
+            add_legend = True
+
+            # Rename the first line to 'Average (1)', if needed
+            for line in ax.lines:
+                if line.get_label() == 'Average':
+                    line.set_label('Average (1)')
+                    break
+        else:
+            avg_linestyle = 'solid'
+            avg_label = 'Average'
+            add_legend = False
+
+        if edf_log_plot:
+            ax.plot(x, self.avg_time_avg_in_data[field] / self.edf_energy[edf_type] ** (0.5),
+                    label=avg_label, color = 'black', linewidth=2, linestyle=avg_linestyle)
+        else:
+            ax.plot(x, self.avg_time_avg_in_data[field],
+                    label=avg_label, color = 'black', linewidth=2, linestyle=avg_linestyle)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(f'{field}')
+        ax.set_title(f'Time averaged {field}')
+        ax.margins(x=0)
+        if plot_all_coll or add_legend:
+            ax.legend(fontsize = 'small')
+        if edf_log_plot:
+            ax.set_yscale('log')
+
+        if return_fig:
+            return fig, ax
+        else:
+            return ax
+
     def plot_time_averaged(self,
                            field: str,
                            plot_all_coll = True,
