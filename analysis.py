@@ -936,7 +936,7 @@ class Analysis:
         Parameters
         ----------
         field : str
-            The field to load
+            The field to load, if None, loads all fields.
 
         Returns
         -------
@@ -945,22 +945,25 @@ class Analysis:
         '''
         if not self.in_bool:
             raise ValueError('Interval data not found')
+
+        # Determine which fields to load
         if field is not None:
             if field not in self.in_fields:
                 raise ValueError(f'Field must be one of: {", ".join(self.in_fields)}')
-
-            for coll in self.in_data[field]:
-                temp = np.load(f'{self.in_colls[coll]}/{field}.npz')
-                # Unpack elements of the npz file from t01 to t{self.interval_times.size+1} into elements of a list
-                for ii in range(len(self.in_times)):
-                    self.in_data[field][coll][ii] = temp[f't{ii+1:02d}']
+            fields_to_load = [field]
         else:
-            for fld in self.in_fields:
-                for coll in self.in_data[fld]:
-                    temp = np.load(f'{self.in_colls[coll]}/{fld}.npz')
-                    # Unpack elements of the npz file from t01 to t{self.interval_times.size+1} into elements of a list
-                    for ii in range(len(self.in_times)):
-                        self.in_data[fld][coll][ii] = temp[f't{ii+1:02d}']
+            fields_to_load = self.in_fields
+
+        # Load data for each requested field and collection
+        for fld in fields_to_load:
+            for coll in self.in_data[fld]:
+                temp = np.load(f'{self.in_colls[coll]}/{fld}.npz')
+                # Unpack elements of the npz file from t01 to t{self.interval_times.size+1} into list entries
+                for ii in range(len(self.in_times)):
+                    self.in_data[fld][coll][ii] = temp[f't{ii+1:02d}']
+                    if fld in ['Jze', 'Jzi']:
+                        self.in_data[fld][coll][ii][0] *= 2
+                        self.in_data[fld][coll][ii][-1] *= 2
         return self.in_data
 
     def add_interval_field(self, field: str):
@@ -1210,7 +1213,7 @@ class Analysis:
         Parameters
         ----------
         field : str
-            The field to load
+            The field to load, if None, loads all fields.
 
         Returns
         -------
@@ -1219,15 +1222,23 @@ class Analysis:
         '''
         if not self.tr_bool:
             raise ValueError('Time resolved data not found')
+
+        # Determine which fields to load
         if field is not None:
             if field not in self.tr_fields:
                 raise ValueError(f'Field must be one of: {", ".join(self.tr_fields)}')
-            for coll in self.tr_data[field]:
-                self.tr_data[field][coll] = np.load(f'{self.tr_colls[coll]}/{field}.npy')
+            fields_to_load = [field]
         else:
-            for fld in self.tr_fields:
-                for coll in self.tr_data[fld]:
-                    self.tr_data[fld][coll] = np.load(f'{self.tr_colls[coll]}/{fld}.npy')
+            fields_to_load = self.tr_fields
+
+        # Load data for each requested field and collection
+        for fld in fields_to_load:
+            for coll in self.tr_data[fld]:
+                self.tr_data[fld][coll] = np.load(f'{self.tr_colls[coll]}/{fld}.npy')
+                if fld in ['Jze', 'Jzi']:
+                    for ii in range(len(self.tr_data[fld][coll])):
+                        self.tr_data[fld][coll][ii][0] *= 2
+                        self.tr_data[fld][coll][ii][-1] *= 2
         return self.tr_data
 
     def add_time_resolved_field(self, field: str):
@@ -2258,7 +2269,7 @@ class Analysis:
         Parameters
         ----------
         field : str
-            The field to load
+            The field to load, if None, loads all fields.
 
         Returns
         -------
@@ -2267,15 +2278,21 @@ class Analysis:
         '''
         if not self.ta_bool:
             raise ValueError('Time averaged data not found')
+
+        # Determine fields to load
         if field is not None:
             if field not in self.ta_fields:
                 raise ValueError(f'Field must be one of: {", ".join(self.ta_fields)}')
-            for coll in self.ta_data[field]:
-                self.ta_data[field][coll] = np.load(f'{self.ta_colls[coll]}/{field}.npy')
+            fields_to_load = [field]
         else:
-            for fld in self.ta_fields:
-                for coll in self.ta_data[fld]:
-                    self.ta_data[fld][coll] = np.load(f'{self.ta_colls[coll]}/{fld}.npy')
+            fields_to_load = self.ta_fields
+
+        for fld in fields_to_load:
+            for coll in self.ta_data[fld]:
+                self.ta_data[fld][coll] = np.load(f'{self.ta_colls[coll]}/{fld}.npy')
+                if fld in ['Jze', 'Jzi']:
+                    self.ta_data[fld][coll][0] *= 2
+                    self.ta_data[fld][coll][-1] *= 2
         return self.ta_data
 
     def add_time_averaged_field(self, field: str):
@@ -2286,11 +2303,6 @@ class Analysis:
         ----------
         field : str
             The field to add. Must be one of 'P_t', 'EfV', 'Jzc', 'J_t'
-
-        Returns
-        -------
-        tr_data : dict[dict[stack of np.ndArray]]
-            The time resolved data
         '''
         if not self.ta_bool:
             raise ValueError('Time averaged data not found')
