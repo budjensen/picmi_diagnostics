@@ -1121,25 +1121,39 @@ class Analysis:
             return_fig = True
 
         # Make avg line
+        avg_plot_type = None
         if plot_time_avg:
-            # Try time averaged data
-            try:
-                if not hasattr(self, 'avg_ta_data'):
-                    self.avg_time_averaged(field)
-                if field not in self.avg_ta_data:
-                    self.avg_time_averaged(field)
-                avg_plot_type = 'time averaged'
-            except ValueError:
-                # If time averaged fails, try time resolved data
+            # Prefer time-averaged data, then time-resolved, then interval-averaged
+            if getattr(self, 'ta_bool', False):
                 try:
-                    if not hasattr(self, 'avg_tr_data'):
-                        self.avg_time_resolved(field)
-                    if field not in self.avg_tr_data:
-                        self.avg_time_resolved(field)
-                    avg_plot_type = 'time resolved'
+                    if not hasattr(self, 'avg_ta_data') or field not in self.avg_ta_data:
+                        self.avg_time_averaged(field)
+                    if field in self.avg_ta_data:
+                        avg_plot_type = 'time averaged'
                 except ValueError:
-                    # If both fail, print message and continue without time averaged line
-                    print(f"Warning: Could not plot time averaged line for {field}. Neither time averaged nor time resolved data available.")
+                    # fall through to next option
+                    avg_plot_type = None
+
+            if avg_plot_type is None and getattr(self, 'tr_bool', False):
+                try:
+                    if not hasattr(self, 'avg_tr_data') or field not in self.avg_tr_data:
+                        self.avg_time_resolved(field)
+                    if field in self.avg_tr_data:
+                        avg_plot_type = 'time resolved'
+                except ValueError:
+                    avg_plot_type = None
+
+            if avg_plot_type is None and getattr(self, 'in_bool', False):
+                try:
+                    if not hasattr(self, 'avg_time_avg_in_data') or field not in self.avg_time_avg_in_data:
+                        self.avg_intervals_over_time(field)
+                    if field in self.avg_time_avg_in_data:
+                        avg_plot_type = 'interval time averaged'
+                except ValueError:
+                    avg_plot_type = None
+
+            if avg_plot_type is None:
+                print(f"Warning: Could not plot time averaged line for {field}. No time averaged data can be constructed.")
 
         # Get x-axis data
         if len(self.avg_in_data[field][0]) == len(self.cells):
@@ -1166,11 +1180,13 @@ class Analysis:
             ax.set_title(f'{field} intervals')
 
             # Plot avg line
-            if plot_time_avg:
+            if plot_time_avg and avg_plot_type is not None:
                 if avg_plot_type == 'time averaged':
                     ax.plot(x, self.avg_ta_data[field], label = 'Average', color = 'black')
                 elif avg_plot_type == 'time resolved':
                     ax.plot(x, self.avg_tr_data[field], label = 'Average', color = 'black')
+                elif avg_plot_type == 'interval time averaged':
+                    ax.plot(x, self.avg_time_avg_in_data[field], label = 'Average', color = 'black')
             ax.legend(loc = [1.01,0], fontsize = 'small')
 
         else:
