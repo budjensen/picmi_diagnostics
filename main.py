@@ -961,6 +961,8 @@ class Diagnostics1D:
             self._get_interval_collection_steps()
         else:
             self.in_coll_steps = [[] for _ in range(self.num_outputs)]
+            self.step_to_interval_map = [{} for _ in range(self.num_outputs)]
+            self.in_coll_counts = [{(0, i): 0 for i in range(len(self.in_slices))} for _ in range(self.num_outputs)]
         if self.Riz_switch:
             self._setup_Riz_diag(simulation_obj)
         self._calculate_N_collections()
