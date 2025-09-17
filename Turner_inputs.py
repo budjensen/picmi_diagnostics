@@ -60,6 +60,8 @@ class CapacitiveDischargeExample(object):
     # Wall distribution function collection parameters
     ieadf_max_eV     = 40                                # Maximum energy for ion energy distribution function [eV]
     num_bins_ieadf   = 120                               # Number of bins for ion energy distribution function
+    eeadf_max_eV     = 40                                # Maximum energy for electron energy distribution function [eV]
+    num_bins_eeadf   = 120                               # Number of bins for electron energy distribution function
 
     # Normal distribution function collection parameters
     eedf_max_eV     = 40                                # Maximum energy for electron energy distribution function [eV]
@@ -79,6 +81,10 @@ class CapacitiveDischargeExample(object):
     # Create switches for custom diagnostics
     diag_switches = {
         'ieadfs': {
+            'z_lo': False,
+            'z_hi': False,
+        },
+        'eeadfs': {
             'z_lo': False,
             'z_hi': False,
         },

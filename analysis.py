@@ -18,7 +18,7 @@ class Analysis:
         self._initialize_basic_attributes()
         self._setup_directory(directory)
         self._load_basic_parameters()
-        self._initialize_ieadf_data(quiet_startup)
+        self._initialize_wall_eadf_data(quiet_startup)
         self._initialize_ionization_rate_data(quiet_startup)
         self._initialize_interval_data(quiet_startup)
         self._initialize_time_resolved_data(quiet_startup)
@@ -29,7 +29,7 @@ class Analysis:
     def _initialize_basic_attributes(self):
         '''Initialize basic boolean flags and cell diagnostics list'''
         self.cell_diags = ['E_z', 'J_d', 'CPe', 'CPi', 'IPe', 'IPi']
-        self.ieadf_bool = False
+        self.wall_eadf_bool = False
         self.Riz_bool = False
         self.in_bool = False
         self.tr_bool = False
@@ -54,89 +54,89 @@ class Analysis:
                     self.dz = float(line.split('=')[1])
                     break
 
-    def _initialize_ieadf_data(self, quiet_startup: bool):
-        '''Initialize Ion Energy Angular Distribution Function data'''
-        if not any(dir.startswith('ieadf') for dir in self.dir):
+    def _initialize_wall_eadf_data(self, quiet_startup: bool):
+        '''Initialize Wall Energy Angular Distribution Function data'''
+        if not any(d.startswith(('eadf', 'ieadf')) for d in self.dir):
             return
 
         if not quiet_startup:
-            print('IEADF data found')
-        self.ieadf_bool = True
+            print('Wall EADF data found')
+        self.wall_eadf_bool = True
 
-        # Save the ieadf directories (there will be one for each ion species)
-        temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith('ieadf')]
+        # Save the wall eadf directories (there will be one for each species)
+        temp = [f'{self.directory}/{dir}' for dir in self.dir if dir.startswith(('eadf', 'ieadf'))]
         temp.sort()
-        self.ieadf_dir = {}
+        self.wall_eadf_dir = {}
         for species_dir in temp:
             # Save the species name as the dictionary key and the directory as the value
-            self.ieadf_dir[species_dir.split('ieadf_')[-1]] = species_dir
+            self.wall_eadf_dir[species_dir.split('eadf_')[-1]] = species_dir
 
         if not quiet_startup:
-            if len(self.ieadf_dir) > 1:
-                print(f' - {len(self.ieadf_dir)} IEADF directories found for species: {", ".join(self.ieadf_dir.keys())}')
+            if len(self.wall_eadf_dir) > 1:
+                print(f' - {len(self.wall_eadf_dir)} Wall EADF directories found for species: {", ".join(self.wall_eadf_dir.keys())}')
             else:
-                print(f' - {len(self.ieadf_dir)} IEADF directory found for species: {", ".join(self.ieadf_dir.keys())}')
+                print(f' - {len(self.wall_eadf_dir)} Wall EADF directory found for species: {", ".join(self.wall_eadf_dir.keys())}')
 
         # Initialize dictionaries
-        self.ieadf_energy = {}
-        self.ieadf_energy_edges = {}
-        self.ieadf_deg = {}
-        self.ieadf_deg_edges = {}
-        self.lw_ieadf_colls = {}
-        self.rw_ieadf_colls = {}
-        self.ieadf_data_lists = {}
+        self.wall_eadf_energy = {}
+        self.wall_eadf_energy_edges = {}
+        self.wall_eadf_deg = {}
+        self.wall_eadf_deg_edges = {}
+        self.lw_eadf_colls = {}
+        self.rw_eadf_colls = {}
+        self.wall_eadf_data_lists = {}
 
         # Process each species directory
-        for key, directory in self.ieadf_dir.items():
-            self._process_ieadf_species_directory(key, directory, quiet_startup)
+        for key, directory in self.wall_eadf_dir.items():
+            self._process_wall_eadf_species_directory(key, directory, quiet_startup)
 
-    def _process_ieadf_species_directory(self, species: str, directory: str, quiet_startup: bool):
-        '''Process IEADF data for a single species directory'''
+    def _process_wall_eadf_species_directory(self, species: str, directory: str, quiet_startup: bool):
+        '''Process Wall EADF data for a single species directory'''
         if not quiet_startup:
             print(f' - Looking into directory for species: {species}')
 
-        ieadf_dir = os.listdir(directory)
-        ieadf_dir.sort()
+        wall_eadf_dir = os.listdir(directory)
+        wall_eadf_dir.sort()
 
         # Load energy bins and create edges
-        if 'bins_eV.npy' in ieadf_dir:
-            self.ieadf_energy[species] = np.load(directory + '/bins_eV.npy')
+        if 'bins_eV.npy' in wall_eadf_dir:
+            self.wall_eadf_energy[species] = np.load(directory + '/bins_eV.npy')
             # Energies are cell midpoints, and we need to get the edges for plotting with plt.pcolormesh
-            self.ieadf_energy_edges[species] = np.zeros(self.ieadf_energy[species].size + 1)
-            self.ieadf_energy_edges[species][0] = self.ieadf_energy[species][0] - (self.ieadf_energy[species][1] - self.ieadf_energy[species][0])/2
-            self.ieadf_energy_edges[species][1:-1] = (self.ieadf_energy[species][1:] + self.ieadf_energy[species][:-1])/2
-            self.ieadf_energy_edges[species][-1] = self.ieadf_energy[species][-1] + (self.ieadf_energy[species][-1] - self.ieadf_energy[species][-2])/2
+            self.wall_eadf_energy_edges[species] = np.zeros(self.wall_eadf_energy[species].size + 1)
+            self.wall_eadf_energy_edges[species][0] = self.wall_eadf_energy[species][0] - (self.wall_eadf_energy[species][1] - self.wall_eadf_energy[species][0])/2
+            self.wall_eadf_energy_edges[species][1:-1] = (self.wall_eadf_energy[species][1:] + self.wall_eadf_energy[species][:-1])/2
+            self.wall_eadf_energy_edges[species][-1] = self.wall_eadf_energy[species][-1] + (self.wall_eadf_energy[species][-1] - self.wall_eadf_energy[species][-2])/2
         elif not quiet_startup:
             print(f'   > Energy bins not found')
 
         # Load degree bins and create edges
-        if 'bins_deg.npy' in ieadf_dir:
-            self.ieadf_deg[species] = np.load(directory + '/bins_deg.npy')
+        if 'bins_deg.npy' in wall_eadf_dir:
+            self.wall_eadf_deg[species] = np.load(directory + '/bins_deg.npy')
             # Degrees are cell midpoints, and we need to get the edges for plotting with plt.pcolormesh
-            self.ieadf_deg_edges[species] = np.zeros(self.ieadf_deg[species].size + 1)
-            self.ieadf_deg_edges[species][0] = self.ieadf_deg[species][0] - (self.ieadf_deg[species][1] - self.ieadf_deg[species][0])/2
-            self.ieadf_deg_edges[species][1:-1] = (self.ieadf_deg[species][1:] + self.ieadf_deg[species][:-1])/2
-            self.ieadf_deg_edges[species][-1] = self.ieadf_deg[species][-1] + (self.ieadf_deg[species][-1] - self.ieadf_deg[species][-2])/2
+            self.wall_eadf_deg_edges[species] = np.zeros(self.wall_eadf_deg[species].size + 1)
+            self.wall_eadf_deg_edges[species][0] = self.wall_eadf_deg[species][0] - (self.wall_eadf_deg[species][1] - self.wall_eadf_deg[species][0])/2
+            self.wall_eadf_deg_edges[species][1:-1] = (self.wall_eadf_deg[species][1:] + self.wall_eadf_deg[species][:-1])/2
+            self.wall_eadf_deg_edges[species][-1] = self.wall_eadf_deg[species][-1] + (self.wall_eadf_deg[species][-1] - self.wall_eadf_deg[species][-2])/2
         elif not quiet_startup:
             print(f'   > Degree bins not found')
 
-        self.ieadf_data_lists[species] = {}
+        self.wall_eadf_data_lists[species] = {}
 
         # Process left wall collections
-        if any(file.startswith('lw') for file in ieadf_dir):
-            self.lw_ieadf_colls[species] = [f'{directory}/{file}' for file in ieadf_dir if file.startswith('lw')]
-            self.lw_ieadf_colls[species].sort()
+        if any(file.startswith('lw') for file in wall_eadf_dir):
+            self.lw_eadf_colls[species] = [f'{directory}/{file}' for file in wall_eadf_dir if file.startswith('lw')]
+            self.lw_eadf_colls[species].sort()
             if not quiet_startup:
-                print(f'   > {len(self.lw_ieadf_colls[species])} left wall collections')
-            self.ieadf_data_lists[species]['lw'] = []
+                print(f'   > {len(self.lw_eadf_colls[species])} left wall collections')
+            self.wall_eadf_data_lists[species]['lw'] = []
 
         # Process right wall collections
-        if any(file.startswith('rw') for file in ieadf_dir):
-            self.rw_ieadf_colls[species] = [f'{directory}/{file}' for file in ieadf_dir if file.startswith('rw')]
-            self.rw_ieadf_colls[species].sort()
+        if any(file.startswith('rw') for file in wall_eadf_dir):
+            self.rw_eadf_colls[species] = [f'{directory}/{file}' for file in wall_eadf_dir if file.startswith('rw')]
+            self.rw_eadf_colls[species].sort()
             if not quiet_startup:
-                print(f'   > {len(self.rw_ieadf_colls[species])} right wall collections')
-            self.ieadf_data_lists[species]['rw'] = []
+                print(f'   > {len(self.rw_eadf_colls[species])} right wall collections')
+            self.wall_eadf_data_lists[species]['rw'] = []
 
     def _initialize_ionization_rate_data(self, quiet_startup: bool):
         '''Initialize ionization rate data'''
@@ -428,7 +428,7 @@ class Analysis:
         '''
         if not self.Riz_bool:
             raise ValueError('Ionization rate data not found')
-        # Load the ieadf data
+        # Load the Riz data
         self.load_Riz_data_lists()
 
         # Initialize the dictionary to store the average data
@@ -527,7 +527,7 @@ class Analysis:
             ax.margins(x=0)
         else:
             fig, ax = plt.subplots(1,1, dpi=dpi)
-            ax.plot(self.ieadf_energy[species], Riz[species], label = species)
+            ax.plot(self.wall_eadf_energy[species], Riz[species], label = species)
             ax.set_ylim(0, np.max(Riz[species])*1.05)
             ax.set_xlabel('Position [m]')
             ax.set_ylabel('$R_i$ [m$^{-3}$s$^{-1}$]')
@@ -587,9 +587,9 @@ class Analysis:
             ax.set_title(f'{species} Ionization Rate')
             return fig, ax
 
-    def load_ieadf_data_lists(self, species: str = None):
+    def load_wall_eadf_data_lists(self, species: str = None):
         '''
-        Load the IEADF data
+        Load the wall EADF data
 
         Parameters
         ----------
@@ -598,159 +598,159 @@ class Analysis:
 
         Returns
         -------
-        ieadf_data_lists : dict[dict[list[np.ndarray]]]
-            The IEADF data organized like
-            ieadf_data_lists[species][wall][collection]
+        wall_eadf_data_lists : dict[dict[list[np.ndarray]]]
+            The wall EADF data organized like
+            wall_eadf_data_lists[species][wall][collection]
         '''
-        if not self.ieadf_bool:
-            raise ValueError('IEADF data not found')
+        if not self.wall_eadf_bool:
+            raise ValueError('Wall EADF data not found')
         if species is not None:
-            if species not in self.ieadf_dir:
-                raise ValueError(f'Species must be one of: {", ".join(self.ieadf_dir.keys())}')
+            if species not in self.wall_eadf_dir:
+                raise ValueError(f'Species must be one of: {", ".join(self.wall_eadf_dir.keys())}')
             # Add left wall data, if necessary
-            if 'lw' in self.ieadf_data_lists[species]:
-                self.ieadf_data_lists[species]['lw'] = [np.load(coll) for coll in self.lw_ieadf_colls[species]]
+            if 'lw' in self.wall_eadf_data_lists[species]:
+                self.wall_eadf_data_lists[species]['lw'] = [np.load(coll) for coll in self.lw_eadf_colls[species]]
             # Add right wall data, if necessary
-            if 'rw' in self.ieadf_data_lists[species]:
-                self.ieadf_data_lists[species]['rw'] = [np.load(coll) for coll in self.rw_ieadf_colls[species]]
+            if 'rw' in self.wall_eadf_data_lists[species]:
+                self.wall_eadf_data_lists[species]['rw'] = [np.load(coll) for coll in self.rw_eadf_colls[species]]
         else:
-            for spec in self.ieadf_dir:
-                if 'lw' in self.ieadf_data_lists[spec]:
-                    self.ieadf_data_lists[spec]['lw'] = [np.load(coll) for coll in self.lw_ieadf_colls[spec]]
-                if 'rw' in self.ieadf_data_lists[spec]:
-                    self.ieadf_data_lists[spec]['rw'] = [np.load(coll) for coll in self.rw_ieadf_colls[spec]]
+            for spec in self.wall_eadf_dir:
+                if 'lw' in self.wall_eadf_data_lists[spec]:
+                    self.wall_eadf_data_lists[spec]['lw'] = [np.load(coll) for coll in self.lw_eadf_colls[spec]]
+                if 'rw' in self.wall_eadf_data_lists[spec]:
+                    self.wall_eadf_data_lists[spec]['rw'] = [np.load(coll) for coll in self.rw_eadf_colls[spec]]
 
-        return self.ieadf_data_lists
+        return self.wall_eadf_data_lists
 
-    def get_avg_ieadf_data(self, separate_rl: bool = False):
+    def get_avg_wall_eadf_data(self, separate_rl: bool = False):
         '''
-        Get the average IEADF over all collections. Optionally, average the
+        Get the average wall EADF over all collections. Optionally, average the
         left and right wall data separately.
 
         Parameters
         ----------
         separate_rl : bool, default=False
-            Average the left and right wall IEADF data separately if True
+            Average the left and right wall EADF data separately if True
 
         Returns
         -------
-        avg_ieadf_data : dict[np.ndarray] or dict[dict[np.ndarray]]
-            The averaged IEADF data for each species. If separate_rl is False,
-            the data is organized like avg_ieadf_data[species]. If separate_rl
-            is True, the data is organized like avg_ieadf_data[species][wall].
+        avg_wall_eadf_data : dict[np.ndarray] or dict[dict[np.ndarray]]
+            The averaged wall EADF data for each species. If separate_rl is False,
+            the data is organized like avg_wall_eadf_data[species]. If separate_rl
+            is True, the data is organized like avg_wall_eadf_data[species][wall].
         '''
-        if not self.ieadf_bool:
-            raise ValueError('IEADF data not found')
-        # Load the ieadf data
-        self.load_ieadf_data_lists()
+        if not self.wall_eadf_bool:
+            raise ValueError('Wall EADF data not found')
+        # Load the wall eadf data
+        self.load_wall_eadf_data_lists()
 
         # Average both walls data together
         if not separate_rl:
-            # Initialize the dictionary to store the average IEADF data
-            self.avg_ieadf_data = {}
-            for species in self.ieadf_data_lists:
+            # Initialize the dictionary to store the average wall EADF data
+            self.avg_wall_eadf_data = {}
+            for species in self.wall_eadf_data_lists:
                 temp_array_list = []
-                for wall in self.ieadf_data_lists[species]:
-                    for array in self.ieadf_data_lists[species][wall]:
+                for wall in self.wall_eadf_data_lists[species]:
+                    for array in self.wall_eadf_data_lists[species][wall]:
                         temp_array_list.append(array)
-                # Save the average IEADF data for the species
-                self.avg_ieadf_data[species] = np.mean(temp_array_list, axis=0)
+                # Save the average wall EADF data for the species
+                self.avg_wall_eadf_data[species] = np.mean(temp_array_list, axis=0)
         else:
-            # Initialize the dictionary to store the average IEADF data
-            self.avg_ieadf_data = {}
-            for species in self.ieadf_data_lists:
-                self.avg_ieadf_data[species] = {}
-                for wall in self.ieadf_data_lists[species]:
+            # Initialize the dictionary to store the average wall EADF data
+            self.avg_wall_eadf_data = {}
+            for species in self.wall_eadf_data_lists:
+                self.avg_wall_eadf_data[species] = {}
+                for wall in self.wall_eadf_data_lists[species]:
                     temp_array_list = []
-                    for array in self.ieadf_data_lists[species][wall]:
+                    for array in self.wall_eadf_data_lists[species][wall]:
                         temp_array_list.append(array)
-                    self.avg_ieadf_data[species][wall] = np.mean(temp_array_list, axis=0)
+                    self.avg_wall_eadf_data[species][wall] = np.mean(temp_array_list, axis=0)
 
-        return self.avg_ieadf_data
+        return self.avg_wall_eadf_data
 
-    def get_iedf_data_lists(self):
+    def get_wall_edf_data_lists(self):
         '''
-        Gets IEDF data from the list of IEADF data.
+        Gets wall EDF data from the list of wall EDF data.
 
         Returns
         -------
         iedf_data_lists : dict[dict[list[np.ndarray]]]
             The IEDF data
         '''
-        if not self.ieadf_bool:
-            raise ValueError('IEADF data not found')
-        self.load_ieadf_data_lists()
-        self.iedf_data_lists = {}
-        for species in self.ieadf_data_lists:
-            self.iedf_data_lists[species] = {}
-            for wall in self.ieadf_data_lists[species]:
-                self.iedf_data_lists[species][wall] = []
-                for array in self.ieadf_data_lists[species][wall]:
-                    self.iedf_data_lists[species][wall].append(np.sum(array, axis=1))
-        return self.iedf_data_lists
+        if not self.wall_eadf_bool:
+            raise ValueError('Wall EADF data not found')
+        self.load_wall_eadf_data_lists()
+        self.wall_edf_data_lists = {}
+        for species in self.wall_eadf_data_lists:
+            self.wall_edf_data_lists[species] = {}
+            for wall in self.wall_eadf_data_lists[species]:
+                self.wall_edf_data_lists[species][wall] = []
+                for array in self.wall_eadf_data_lists[species][wall]:
+                    self.wall_edf_data_lists[species][wall].append(np.sum(array, axis=1))
+        return self.wall_edf_data_lists
 
-    def get_avg_iedf_data(self, separate_rl: bool = False):
+    def get_avg_wall_edf_data(self, separate_rl: bool = False):
         '''
-        Get the average IEDF over all collections. Optionally, average the
+        Get the average wall EDF over all collections. Optionally, average the
         left and right wall data separately.
 
         Parameters
         ----------
         separate_rl : bool, default=False
-            Average the left and right wall IEDF data separately if True
+            Average the left and right wall EDF data separately if True
 
         Returns
         -------
-        avg_iedf_data : dict[np.ndarray] or dict[dict[np.ndarray]]
-            The IEDF data for each species. If separate_rl is False, the data
-            is organized like avg_iedf_data[species]. If separate_rl is True,
-            the data is organized like avg_iedf_data[species][wall].
+        avg_wall_edf_data : dict[np.ndarray] or dict[dict[np.ndarray]]
+            The wall EDF data for each species. If separate_rl is False, the data
+            is organized like avg_wall_edf_data[species]. If separate_rl is True,
+            the data is organized like avg_wall_edf_data[species][wall].
         '''
-        if not self.ieadf_bool:
-            raise ValueError('IEADF data not found')
+        if not self.wall_eadf_bool:
+            raise ValueError('Wall EDF data not found')
         if not hasattr(self, 'iedf_data_lists'):
-            self.get_iedf_data_lists()
+            self.get_wall_edf_data_lists()
 
         # Average both walls data together
         if not separate_rl:
-            # Initialize the dictionary to store the average IEDF data
-            self.avg_iedf_data = {}
-            for species in self.iedf_data_lists:
+            # Initialize the dictionary to store the average wall EDF data
+            self.avg_wall_edf_data = {}
+            for species in self.wall_edf_data_lists:
                 temp_array_list = []
-                for wall in self.iedf_data_lists[species]:
-                    for array in self.iedf_data_lists[species][wall]:
+                for wall in self.wall_edf_data_lists[species]:
+                    for array in self.wall_edf_data_lists[species][wall]:
                         temp_array_list.append(array)
                 # Save the average IEDF data for the species
-                self.avg_iedf_data[species] = np.mean(temp_array_list, axis=0)
+                self.avg_wall_edf_data[species] = np.mean(temp_array_list, axis=0)
         else:
-            # Initialize the dictionary to store the average IEDF data
-            self.avg_iedf_data = {}
-            for species in self.iedf_data_lists:
-                self.avg_iedf_data[species] = {}
-                for wall in self.iedf_data_lists[species]:
+            # Initialize the dictionary to store the average wall EDF data
+            self.avg_wall_edf_data = {}
+            for species in self.wall_edf_data_lists:
+                self.avg_wall_edf_data[species] = {}
+                for wall in self.wall_edf_data_lists[species]:
                     temp_array_list = []
-                    for array in self.iedf_data_lists[species][wall]:
+                    for array in self.wall_edf_data_lists[species][wall]:
                         temp_array_list.append(array)
-                    self.avg_iedf_data[species][wall] = np.mean(temp_array_list, axis=0)
+                    self.avg_wall_edf_data[species][wall] = np.mean(temp_array_list, axis=0)
 
-        return self.avg_iedf_data
+        return self.avg_wall_edf_data
 
-    def plot_avg_iedf(self,
+    def plot_avg_wall_edf(self,
                       species: str = None,
                       separate_rl: bool = False,
                       normalize: bool = True,
                       dpi=150):
         '''
-        Plot the collection-averaged IEDF data
+        Plot the collection-averaged wall EDF data
 
         Parameters
         ----------
         species : str, default=None
             The species to plot. If None, plots all species on a single axis
         separate_rl : bool, default=False
-            Average the left and right wall IEDF data separately if True
+            Average the left and right wall EDF data separately if True
         normalize : bool
-            Normalize the IEDF data
+            Normalize the wall EDF data
         dpi : int
             The DPI of the plot
 
@@ -761,51 +761,51 @@ class Analysis:
         ax : matplotlib.axes.Axes
             The axes object
         '''
-        if not self.ieadf_bool:
-            raise ValueError('IEADF data not found')
-        if not hasattr(self, 'avg_iedf_data'):
-            self.get_avg_iedf_data(separate_rl=separate_rl)
-        if species is not None and species not in self.iedf_data_lists:
-            raise ValueError(f'Species must be one of: {", ".join(self.iedf_data_lists.keys())}')
+        if not self.wall_eadf_bool:
+            raise ValueError('Wall EADF data not found')
+        if not hasattr(self, 'avg_wall_edf_data'):
+            self.get_avg_wall_edf_data(separate_rl=separate_rl)
+        if species is not None and species not in self.wall_edf_data_lists:
+            raise ValueError(f'Species must be one of: {", ".join(self.wall_edf_data_lists.keys())}')
         if normalize:
-            iedfs = self.normalize_iedf()
+            edfs = self.normalize_wall_edf()
         else:
-            iedfs = self.avg_iedf_data
+            edfs = self.avg_wall_edf_data
         if species is None:
             fig, ax = plt.subplots(1,1, dpi=dpi)
-            for spec in iedfs:
-                if isinstance(iedfs[spec], dict):
-                    for wall in iedfs[spec]:
-                        ax.plot(self.ieadf_energy[spec], iedfs[spec][wall], label = wall)
-                    ax.set_ylim(0, np.max([np.max(iedfs[spec][wall]) for wall in iedfs[spec]])*1.05)
+            for spec in edfs:
+                if isinstance(edfs[spec], dict):
+                    for wall in edfs[spec]:
+                        ax.plot(self.wall_eadf_energy[spec], edfs[spec][wall], label = f'{wall} {spec}')
+                    ax.set_ylim(0, np.max([np.max(edfs[spec][wall]) for wall in edfs[spec]])*1.05)
                     ax.legend()
                 else:
-                    ax.plot(self.ieadf_energy[spec], iedfs[spec])
-                    ax.set_ylim(0, np.max(iedfs[spec])*1.05)
+                    ax.plot(self.wall_eadf_energy[spec], edfs[spec], label = spec)
+                    ax.set_ylim(0, np.max(edfs[spec])*1.05)
             ax.set_xlabel('Energy [eV]')
-            ax.set_ylabel('IEDF [eV$^{-1}$]')
-            ax.set_title('Simulation IEDF')
+            ax.set_ylabel('EDF [eV$^{-1}$]')
+            ax.set_title('Simulation Wall EDF')
             ax.margins(x=0)
         else:
             fig, ax = plt.subplots(1,1, dpi=dpi)
-            if isinstance(iedfs[species], dict):
-                for wall in iedfs[species]:
-                    ax.plot(self.ieadf_energy[species], iedfs[species][wall], label = wall)
-                ax.set_ylim(0, np.max([np.max(iedfs[species][wall]) for wall in iedfs[species]])*1.05)
+            if isinstance(edfs[species], dict):
+                for wall in edfs[species]:
+                    ax.plot(self.wall_eadf_energy[species], edfs[species][wall], label = f'{wall} {species}')
+                ax.set_ylim(0, np.max([np.max(edfs[species][wall]) for wall in edfs[species]])*1.05)
                 ax.legend()
             else:
-                ax.plot(self.ieadf_energy[species], iedfs[species])
-                ax.set_ylim(0, np.max(iedfs[species])*1.05)
+                ax.plot(self.wall_eadf_energy[species], edfs[species], label = species)
+                ax.set_ylim(0, np.max(edfs[species])*1.05)
             ax.set_xlabel('Energy [eV]')
-            ax.set_ylabel('IEDF [eV$^{-1}$]')
-            ax.set_title('Simulation IEDF')
+            ax.set_ylabel('EDF [eV$^{-1}$]')
+            ax.set_title('Simulation Wall EDF')
             ax.margins(x=0)
 
         return fig, ax
 
-    def normalize_iedf(self):
+    def normalize_wall_edf(self):
         '''
-        Normalize the collection-averaged IEDF data
+        Normalize the collection-averaged Wall EDF data
 
         Returns
         -------
@@ -813,43 +813,43 @@ class Analysis:
             The normalized IEDF data, organized like iedf[species] or
             iedf[species][wall] based on how the data is organized coming in
         '''
-        if not self.ieadf_bool:
-            raise ValueError('IEADF data not found')
-        if not hasattr(self, 'avg_iedf_data'):
-            self.get_avg_iedf_data()
-        self.normalized_iedfs = {}
-        for species in self.avg_iedf_data:
+        if not self.wall_eadf_bool:
+            raise ValueError('Wall EADF data not found')
+        if not hasattr(self, 'avg_wall_edf_data'):
+            self.get_avg_wall_edf_data()
+        self.normalized_wall_edfs = {}
+        for species in self.avg_wall_edf_data:
             # Check if the species have been separated into left and right wall data
-            if isinstance(self.avg_iedf_data[species], dict):
-                self.normalized_iedfs[species] = {}
-                for wall in self.avg_iedf_data[species]:
-                    integral = np.trapezoid(self.avg_iedf_data[species][wall], self.ieadf_energy[species])
+            if isinstance(self.avg_wall_edf_data[species], dict):
+                self.normalized_wall_edfs[species] = {}
+                for wall in self.avg_wall_edf_data[species]:
+                    integral = np.trapezoid(self.avg_wall_edf_data[species][wall], self.wall_eadf_energy[species])
                     if integral > 0:
-                        self.normalized_iedfs[species][wall] = self.avg_iedf_data[species][wall] / integral
+                        self.normalized_wall_edfs[species][wall] = self.avg_wall_edf_data[species][wall] / integral
                     else:
-                        self.normalized_iedfs[species][wall] = np.zeros_like(self.avg_iedf_data[species][wall])
+                        self.normalized_wall_edfs[species][wall] = np.zeros_like(self.avg_wall_edf_data[species][wall])
             else:
-                integral = np.trapezoid(self.avg_iedf_data[species], self.ieadf_energy[species])
+                integral = np.trapezoid(self.avg_wall_edf_data[species], self.wall_eadf_energy[species])
                 if integral > 0:
-                    self.normalized_iedfs[species] = self.avg_iedf_data[species] / integral
+                    self.normalized_wall_edfs[species] = self.avg_wall_edf_data[species] / integral
                 else:
-                    self.normalized_iedfs[species] = np.zeros_like(self.avg_iedf_data[species])
+                    self.normalized_wall_edfs[species] = np.zeros_like(self.avg_wall_edf_data[species])
 
-        return self.normalized_iedfs
+        return self.normalized_wall_edfs
 
-    def plot_avg_ieadf(self,
-                       species: str = None,
-                       normalize: bool = True,
-                       dpi=150):
+    def plot_avg_wall_eadf(self,
+                           species: str = None,
+                           normalize: bool = True,
+                           dpi=150):
         '''
-        Plot the collection-averaged IEADF data
+        Plot the collection-averaged wall EADF data
 
         Parameters
         ----------
         species : str, default=None
             The species to plot. If None, plots all species on a separate figs
         normalize : bool
-            Normalize the IEADF data
+            Normalize the wall EADF data
         dpi : int
             The DPI of the plot
 
@@ -860,74 +860,74 @@ class Analysis:
         ax : matplotlib.axes.Axes
             The axes object
         '''
-        if not self.ieadf_bool:
-            raise ValueError('IEADF data not found')
-        if not hasattr(self, 'avg_ieadf_data'):
-            self.get_avg_ieadf_data()
-        if species is not None and species not in self.avg_ieadf_data:
-            raise ValueError(f'Species must be one of: {", ".join(self.avg_ieadf_data.keys())}')
+        if not self.wall_eadf_bool:
+            raise ValueError('Wall EADF data not found')
+        if not hasattr(self, 'avg_wall_eadf_data'):
+            self.get_avg_wall_eadf_data()
+        if species is not None and species not in self.avg_wall_eadf_data:
+            raise ValueError(f'Species must be one of: {", ".join(self.avg_wall_eadf_data.keys())}')
         if normalize:
-            ieadfs = self.normalize_ieadf()
+            wall_eadfs = self.normalize_wall_eadf()
         else:
-            ieadfs = self.avg_ieadf_data
+            wall_eadfs = self.avg_wall_eadf_data
         if species is None:
             figs = []
             axs = []
-            for spec in ieadfs:
-                if isinstance(ieadfs[spec], dict):
-                    raise NotImplementedError('Cannot plot ieadfs with separate left and right wall data yet. Needs to be implemented.')
+            for spec in wall_eadfs:
+                if isinstance(wall_eadfs[spec], dict):
+                    raise NotImplementedError('Cannot plot wall EADFs with separate left and right wall data yet. Needs to be implemented.')
                 fig, ax = plt.subplots(1,1, dpi=dpi)
                 figs.append(fig)
                 axs.append(ax)
-                cbar = ax.pcolormesh(self.ieadf_deg_edges[spec], self.ieadf_energy_edges[spec], ieadfs[spec], shading='auto')
-                fig.colorbar(cbar, ax=ax, label='IEADF [eV$^{-1}$]')
+                cbar = ax.pcolormesh(self.wall_eadf_deg_edges[spec], self.wall_eadf_energy_edges[spec], wall_eadfs[spec], shading='auto')
+                fig.colorbar(cbar, ax=ax, label='EADF [eV$^{-1}$]')
                 ax.set_xlabel('Degrees')
                 ax.set_ylabel('Energy [eV]')
-                ax.set_title(f'{spec} IEADF')
+                ax.set_title(f'{spec} EADF')
             return figs, axs
         else:
-            if isinstance(ieadfs[species], dict):
-                raise NotImplementedError('Cannot plot ieadfs with separate left and right wall data yet. Needs to be implemented.')
+            if isinstance(wall_eadfs[species], dict):
+                raise NotImplementedError('Cannot plot wall EADFs with separate left and right wall data yet. Needs to be implemented.')
             fig, ax = plt.subplots(1,1, dpi=dpi)
-            cbar = ax.pcolormesh(self.ieadf_deg_edges[species], self.ieadf_energy_edges[species], ieadfs[species], shading='auto')
-            fig.colorbar(cbar, ax=ax, label='IEADF [eV$^{-1}$]')
+            cbar = ax.pcolormesh(self.wall_eadf_deg_edges[species], self.wall_eadf_energy_edges[species], wall_eadfs[species], shading='auto')
+            fig.colorbar(cbar, ax=ax, label='EADF [eV$^{-1}$]')
             ax.set_xlabel('Degrees')
             ax.set_ylabel('Energy [eV]')
-            ax.set_title(f'{species} IEADF')
+            ax.set_title(f'{species} EADF')
             return fig, ax
 
-    def normalize_ieadf(self):
+    def normalize_wall_eadf(self):
         '''
-        Normalize the collection-averaged IEADF data
+        Normalize the collection-averaged wall EADF data
 
         Returns
         -------
-        ieadf : dict[np.ndarray]
-            The normalized IEADF data
+        wall_eadf : dict[np.ndarray]
+            The normalized wall EADF data
         '''
-        if not self.ieadf_bool:
-            raise ValueError('IEADF data not found')
-        if not hasattr(self, 'avg_ieadf_data'):
-            self.get_avg_ieadf_data()
-        self.normalized_ieadfs = {}
-        for species in self.avg_ieadf_data:
+        if not self.wall_eadf_bool:
+            raise ValueError('Wall EADF data not found')
+        if not hasattr(self, 'avg_wall_eadf_data'):
+            self.get_avg_wall_eadf_data()
+        self.normalized_wall_eadfs = {}
+        for species in self.avg_wall_eadf_data:
 
-            # Get the area factor to normalize the IEADF data. To use, divide by the area factor.
+            # Get the area factor to normalize the wall EADF data. To use, divide by the area factor.
             # Area factor is the sine of the angle multiplied by the square root of the energy
-            area_factor = np.abs(np.sin(self.ieadf_deg[species] * np.pi / 180))
-            area_factor = np.tile(area_factor, (self.ieadf_energy[species].size, 1)) # Resize area factor to be size (energy.size, deg.size)
-            for ii in range(len(self.ieadf_energy[species])):
-                area_factor[ii] = np.sqrt(self.ieadf_energy[species][ii]) * area_factor[ii] # Multiply each row by the corresponding energy bin to caluclate the area factor
+            area_factor = np.abs(np.sin(self.wall_eadf_deg[species] * np.pi / 180))
+            area_factor = np.tile(area_factor, (self.wall_eadf_energy[species].size, 1)) # Resize area factor to be size (energy.size, deg.size)
+            for ii in range(len(self.wall_eadf_energy[species])):
+                area_factor[ii] = np.sqrt(self.wall_eadf_energy[species][ii]) * area_factor[ii] # Multiply each row by the corresponding energy bin to caluclate the area factor
 
             # Check if the species have been separated into left and right wall data
-            if isinstance(self.avg_ieadf_data[species], dict):
-                self.normalized_ieadfs[species] = {}
-                for wall in self.avg_ieadf_data[species]:
-                    self.normalized_ieadfs[species][wall] = self.avg_ieadf_data[species][wall] / np.trapz(np.trapz(self.avg_ieadf_data[species][wall], self.ieadf_energy[species], axis=0), self.ieadf_deg[species]) / area_factor
+            if isinstance(self.avg_wall_eadf_data[species], dict):
+                self.normalized_wall_eadfs[species] = {}
+                for wall in self.avg_wall_eadf_data[species]:
+                    self.normalized_wall_eadfs[species][wall] = self.avg_wall_eadf_data[species][wall] / np.trapz(np.trapz(self.avg_wall_eadf_data[species][wall], self.wall_eadf_energy[species], axis=0), self.wall_eadf_deg[species]) / area_factor
             else:
-                self.normalized_ieadfs[species] = self.avg_ieadf_data[species] / np.trapz(np.trapz(self.avg_ieadf_data[species], self.ieadf_energy[species], axis=0), self.ieadf_deg[species]) / area_factor
+                self.normalized_wall_eadfs[species] = self.avg_wall_eadf_data[species] / np.trapz(np.trapz(self.avg_wall_eadf_data[species], self.wall_eadf_energy[species], axis=0), self.wall_eadf_deg[species]) / area_factor
 
-        return self.normalized_ieadfs
+        return self.normalized_wall_eadfs
 
     def load_intervals(self, field: str = None):
         '''

@@ -704,6 +704,10 @@ class Diagnostics1D:
                 'z_lo': True,
                 'z_hi': True,
             },
+            'eeadfs': {
+                'z_lo': False,
+                'z_hi': False,
+            },
             'rate_ioniz' : False,
             'time_averaged': {
                 'N_i': False,
@@ -773,7 +777,11 @@ class Diagnostics1D:
             ieadfs = {
                 'z_lo': True,
                 'z_hi': True,
-            }
+            },
+            eeadfs = {
+                'z_lo': False,
+                'z_hi': False,
+            },
             self.Riz_switch = False
             time_averaged_dict = {
                 'N_i': False,
@@ -838,6 +846,7 @@ class Diagnostics1D:
             }
         else:
             ieadfs = switches['ieadfs']
+            eeadfs = switches['eeadfs']
             self.Riz_switch = switches['rate_ioniz']
             time_averaged_dict = switches['time_averaged']
             time_resolved_dict = switches['time_resolved']
@@ -927,6 +936,7 @@ class Diagnostics1D:
         # Assemble master diagnostic dictionary
         self.master_diagnostic_dict = {
             'ieadfs': ieadfs,
+            'eeadfs': eeadfs,
             'time_averaged': time_averaged_dict,
             'time_resolved': time_resolved_dict,
             'interval': interval_dict
@@ -1001,13 +1011,28 @@ class Diagnostics1D:
         self.iadf_bin_centers = np.multiply(self.iadf_bin_edges[:-1] + self.iadf_bin_edges[1:], 0.5)
 
         # Ieadf arrays
-        self.ieadf_by_species = {}
+        self.wall_eadf_by_species = {}
         for species in self.species_names[1:]:
-            self.ieadf_by_species[species] = {}
+            self.wall_eadf_by_species[species] = {}
             # Create arrays for z_lo and z_hi, if they are turned on
             for key, value in self.master_diagnostic_dict['ieadfs'].items():
                 if value:
-                    self.ieadf_by_species[species][key] = np.zeros((len(self.ieadf_bin_centers), len(self.iadf_bin_centers)))
+                    self.wall_eadf_by_species[species][key] = np.zeros((len(self.ieadf_bin_centers), len(self.iadf_bin_centers)))
+
+        # Create eeadf bins
+        self.eeadf_bin_edges = np.linspace(0, simulation_obj.eeadf_max_eV, simulation_obj.num_bins_eeadf + 1)
+        self.eeadf_bin_centers = np.multiply(self.eeadf_bin_edges[:-1] + self.eeadf_bin_edges[1:], 0.5)
+        self.eadf_bin_edges = np.linspace(-90, 90, 720 + 1)
+        self.eadf_bin_centers = np.multiply(self.eadf_bin_edges[:-1] + self.eadf_bin_edges[1:], 0.5)
+
+        # Eeadf arrays
+        for species in ['electrons']:
+            self.wall_eadf_by_species[species] = {}
+            # Create arrays for z_lo and z_hi, if they are turned on
+            for key, value in self.master_diagnostic_dict['eeadfs'].items():
+                if value:
+                    self.wall_eadf_by_species[species][key] = np.zeros((len(self.eeadf_bin_centers), len(self.eadf_bin_centers)))
+
 
         # Ionization rate arrays
         if self.Riz_switch:
@@ -1556,27 +1581,41 @@ class Diagnostics1D:
         if comm.rank != 0:
             return
 
-        if any(self.master_diagnostic_dict['ieadfs'].values()) or any(self.master_diagnostic_dict[key].get(metric) for key in self.master_diagnostic_dict for metric in ['EEdf', 'IEdf']):
+        if any(self.master_diagnostic_dict['ieadfs'].values()) or any(self.master_diagnostic_dict['eeadfs'].values()) or any(self.master_diagnostic_dict[key].get(metric) for key in self.master_diagnostic_dict for metric in ['EEdf', 'IEdf']):
             # Make a diagnostics directory
             if not os.path.exists(self.diag_folder):
                 os.makedirs(self.diag_folder)
 
-        # Save the wall IEADF settings
+        # Save the wall EADF settings
         if any(self.master_diagnostic_dict['ieadfs'].values()):
-            # Make an ieadf directory for each ion species
-            self.ieadf_dir_by_species = {}
+            # Make an eadf directory for each ion species
+            self.wall_eadf_dir_by_species = {}
             for species in self.species_names[1:]:
-                self.ieadf_dir_by_species[species] = os.path.join(self.diag_folder, f'ieadf_{species}')
-                if not os.path.exists(self.ieadf_dir_by_species[species]):
-                    os.makedirs(self.ieadf_dir_by_species[species])
+                self.wall_eadf_dir_by_species[species] = os.path.join(self.diag_folder, f'eadf_{species}')
+                if not os.path.exists(self.wall_eadf_dir_by_species[species]):
+                    os.makedirs(self.wall_eadf_dir_by_species[species])
 
-            # Save the ieadf energy bins
+            # Save the eadf energy bins
             for species in self.species_names[1:]:
                 # Check if file exists
-                self._check_file(f'{self.ieadf_dir_by_species[species]}/bins_eV.npy')
-                self._check_file(f'{self.ieadf_dir_by_species[species]}/bins_deg.npy')
-                np.save(f'{self.ieadf_dir_by_species[species]}/bins_eV.npy', self.ieadf_bin_centers)
-                np.save(f'{self.ieadf_dir_by_species[species]}/bins_deg.npy', self.iadf_bin_centers)
+                self._check_file(f'{self.wall_eadf_dir_by_species[species]}/bins_eV.npy')
+                self._check_file(f'{self.wall_eadf_dir_by_species[species]}/bins_deg.npy')
+                np.save(f'{self.wall_eadf_dir_by_species[species]}/bins_eV.npy', self.ieadf_bin_centers)
+                np.save(f'{self.wall_eadf_dir_by_species[species]}/bins_deg.npy', self.iadf_bin_centers)
+
+        if any(self.master_diagnostic_dict['eeadfs'].values()):
+            # Make an eeadf directory for electrons
+            if not hasattr(self, 'wall_eadf_dir_by_species'):
+                self.wall_eadf_dir_by_species = {}
+            self.wall_eadf_dir_by_species['electrons'] = os.path.join(self.diag_folder, f'eadf_electrons')
+            if not os.path.exists(self.wall_eadf_dir_by_species['electrons']):
+                os.makedirs(self.wall_eadf_dir_by_species['electrons'])
+
+            # Save the eeadf energy bins
+            self._check_file(f'{self.wall_eadf_dir_by_species['electrons']}/bins_eV.npy')
+            self._check_file(f'{self.wall_eadf_dir_by_species['electrons']}/bins_deg.npy')
+            np.save(f'{self.wall_eadf_dir_by_species['electrons']}/bins_eV.npy', self.eeadf_bin_centers)
+            np.save(f'{self.wall_eadf_dir_by_species['electrons']}/bins_deg.npy', self.eeadf_bin_centers)
 
         # Save the normal EDF settings
         if any(dict.get('EEdf') for dict in self.master_diagnostic_dict.values()):
@@ -2245,33 +2284,73 @@ class Diagnostics1D:
 
         return hist_by_mask
 
-    def calculate_ieadf(self, species: str, boundary: str):
+    def calculate_wall_eadf(self, species: str, boundary: str):
         '''
-        Gets a histogram of the ion energy angular distribution function at
-        the specified boundary for the energy bins self.iedf_bin_centers.
+        Gets a histogram of the energy angular distribution function at
+        the specified boundary for the requested species.
 
         Parameters
         ----------
         species: str
-            The name of the species for which to calculate the ion energy
+            The name of the species for which to calculate the energy angular
+            distribution function
         boundary: str
-            The boundary at which to calculate the ion energy distribution
+            The boundary at which to calculate the energy angular distribution
             function, one of 'z_lo', 'z_hi'
 
         Returns
         -------
         hist: np.ndarray
-            The histogram of the ion energy distribution function
+            The histogram of the energy angular distribution function
         '''
-        # Get the ieadf on the processor
-        hist = self._get_ieadf(species, boundary)
+        # Get the wall eadf on the processor
+        if species in self.species_names[1:]:
+            hist = self._get_wall_ieadf(species, boundary)
+        else:
+            hist = self._get_wall_eeadf(boundary)
 
-        # Sum the ieadf histograms from all processors
+        # Sum histograms from all processors
         hist_all = np.zeros_like(hist)
         comm.Allreduce(hist, hist_all, op=mpi.SUM)
-        self.ieadf_by_species[species][boundary] = hist_all
+        self.wall_eadf_by_species[species][boundary] = hist_all
 
-    def _get_ieadf(self, species, boundary):
+    def _get_wall_eeadf(self, boundary):
+        '''
+        Gets the electron energy angular distribution function.
+        '''
+        if boundary not in ['z_lo', 'z_hi']:
+            raise ValueError("Boundary must be one of 'z_lo' or 'z_hi'")
+
+        # Set up wrappers
+        boundary_wrapper = particle_containers.ParticleBoundaryBufferWrapper()
+
+        try:
+            ux = np.concatenate(boundary_wrapper.get_particle_boundary_buffer('electrons', boundary, 'ux', 0))
+            uy = np.concatenate(boundary_wrapper.get_particle_boundary_buffer('electrons', boundary, 'uy', 0))
+            uz = np.concatenate(boundary_wrapper.get_particle_boundary_buffer('electrons', boundary, 'uz', 0))
+            w  = np.concatenate(boundary_wrapper.get_particle_boundary_buffer('electrons', boundary,  'w', 0))
+        except ValueError:
+            # Here if there are no ions at the boundary from this processor
+            return np.zeros((len(self.eeadf_bin_centers), len(self.eadf_bin_centers)))
+
+        # Calculate the electron energy and base its sign on the z velocity, but if z velocity is zero, use x velocity
+        v2 = (np.square(ux) + np.square(uy) + np.square(uz))
+        E = np.multiply(v2, 0.5 * constants.m_e / constants.q_e)
+
+        # Calculate the electron xy velocity
+        vxy = np.sqrt(np.square(ux) + np.square(uy))
+        # Calculate angle with a negative sign so that left/right wall eeadfs are on the left/right of an energy vs angle plot
+        angle = np.arctan(vxy / uz) * 180 / np.pi
+
+        # Get the histogram (unnormalized)
+        hist, *_ = np.histogram2d(E, angle, bins=[self.eeadf_bin_edges, self.eadf_bin_edges], density=False, weights=w/self.dz)
+
+        # hist = np.ascontiguousarray(hist, dtype=np.float64)
+        hist = np.copy(hist, order='C')
+
+        return hist
+
+    def _get_wall_ieadf(self, species, boundary):
         '''
         Gets the ion energy angular distribution function.
         '''
@@ -2307,9 +2386,9 @@ class Diagnostics1D:
 
         return hist
 
-    def clear_ieadf_buffers(self):
+    def clear_wall_eadf_buffers(self):
         '''
-        Clears the buffers for the ion energy angular distribution function.
+        Clears the buffers for the energy angular distribution function.
         '''
         # Clear the boundary buffers
         boundary_wrapper = particle_containers.ParticleBoundaryBufferWrapper()
@@ -2425,8 +2504,8 @@ class Diagnostics1D:
         if next_step < self.diag_start[self.curr_diag_output]:
             return
         elif step == self.diag_start[self.curr_diag_output]:
-            # Clear the ieadf buffers for this collection
-            self.clear_ieadf_buffers()
+            # Clear the wall eadf buffers for this collection
+            self.clear_wall_eadf_buffers()
 
         # Synchronize, if necessary, to catch velocities up to positions
         if any(self.master_diagnostic_dict[key].get(metric) for key in self.master_diagnostic_dict for metric in ['Jze', 'Jzi', 'CPe', 'CPi', 'IPe', 'IPi', 'W_e', 'W_i']):
@@ -2504,7 +2583,13 @@ class Diagnostics1D:
                 for species in self.species_names[1:]:
                     for key, value in self.master_diagnostic_dict['ieadfs'].items():
                         if value:
-                            self.calculate_ieadf(species, key)
+                            self.calculate_wall_eadf(species, key)
+
+            # Save eeadf, if necessary
+            if any(self.master_diagnostic_dict['eeadfs'].values()):
+                for key, value in self.master_diagnostic_dict['eeadfs'].items():
+                    if value:
+                        self.calculate_wall_eadf('electrons', key)
 
             # Save ionization rate for each species, if necessary
             if self.Riz_switch and self.Riz_current_output <= self.Riz_max_output:
@@ -2512,8 +2597,8 @@ class Diagnostics1D:
                 self.add_buff_Riz()
                 self.Riz_diag_counter += 1
 
-            # Clear ieadf buffers
-            self.clear_ieadf_buffers()
+            # Clear wall eadf buffers
+            self.clear_wall_eadf_buffers()
 
             # Finalize and save diagnostic data
             self.save_diagnostic_data()
@@ -2675,13 +2760,19 @@ class Diagnostics1D:
         counter has been incremented.
         '''
         # Ieadf arrays
-        self.ieadf_by_species = {}
+        self.wall_eadf_by_species = {}
         for species in self.species_names[1:]:
-            self.ieadf_by_species[species] = {}
+            self.wall_eadf_by_species[species] = {}
             # Create arrays for z_lo and z_hi, if they are turned on
             for key, value in self.master_diagnostic_dict['ieadfs'].items():
                 if value:
-                    self.ieadf_by_species[species][key] = np.zeros((len(self.ieadf_bin_centers), len(self.iadf_bin_centers)))
+                    self.wall_eadf_by_species[species][key] = np.zeros((len(self.ieadf_bin_centers), len(self.iadf_bin_centers)))
+
+        # Eeadf arrays
+        self.wall_eadf_by_species['electrons'] = {}
+        for key, value in self.master_diagnostic_dict['eeadfs'].items():
+            if value:
+                self.wall_eadf_by_species['electrons'][key] = np.zeros((len(self.eeadf_bin_centers), len(self.eadf_bin_centers)))
 
         # Ionization rate array
         if self.Riz_switch and self.Riz_diag_counter == 0:
@@ -3047,7 +3138,17 @@ class Diagnostics1D:
                         prefix = 'lw'
                     elif key == 'z_hi':
                         prefix = 'rw'
-                    np.save(os.path.join(self.ieadf_dir_by_species[species], f'{prefix}_{step:04d}.npy'), self.ieadf_by_species[species][key])
+                    np.save(os.path.join(self.wall_eadf_dir_by_species[species], f'{prefix}_{step:04d}.npy'), self.wall_eadf_by_species[species][key])
+
+        # Save eeadfs
+        active = self.master_diagnostic_dict['eeadfs']
+        for key, val in active.items():
+            if val:
+                if key == 'z_lo':
+                    prefix = 'lw'
+                elif key == 'z_hi':
+                    prefix = 'rw'
+                np.save(os.path.join(self.wall_eadf_dir_by_species['electrons'], f'{prefix}_{step:04d}.npy'), self.wall_eadf_by_species['electrons'][key])
 
         # Save ionization rate histograms
         if self.Riz_switch and self.Riz_diag_counter == 0:
