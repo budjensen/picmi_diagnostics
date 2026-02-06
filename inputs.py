@@ -7,7 +7,7 @@ import sys, os, time, copy
 from pywarpx import callbacks, fields, libwarpx, particle_containers, picmi
 from mpi4py import MPI as mpi
 
-from picmi_diagnostics.main import Diagnostics1D, ICPHeatSource, SEE
+from picmi_diagnostics.main import Diagnostics1D, SEE
 from picmi_diagnostics.initial_profile_creator import EqualWeightParticleDistribution
 
 comm = mpi.COMM_WORLD
@@ -466,6 +466,19 @@ class CapacitiveDischargeExample(object):
         self.solver.sim_ext = self.sim.extension
 
         #######################################################################
+        # ICP heating setup                                                   #
+        #######################################################################
+        if self.flag_ICP_heat:
+            self.icp_heating = picmi.ICPHeating(
+                frequency=self.ICP_freq,          # Hz
+                z_min=self.ICP_zmin,              # m
+                z_max=self.ICP_zmax,              # m
+                j0_amplitude=self.ICP_Jmag,       # A/m^2
+                ey_max=1e12,                      # V/m (maximum Ey field)
+            )
+            self.sim.add_icp_heating(self.icp_heating)
+
+        #######################################################################
         # Add diagnostics                                                     #
         #######################################################################
         const_diag = picmi.FieldDiagnostic(
@@ -496,14 +509,6 @@ class CapacitiveDischargeExample(object):
         self._setup_diagnostic_steps()
 
         # Initialize the special classes, if necessary
-        if self.flag_ICP_heat:
-            self.ICP_heating_source = ICPHeatSource(
-                self,
-                self.sim.extension,
-                ion_spec_names=[ion_name],
-                diag_outfolder=self.diag_outfolder
-            )
-
         self.SEE_routine = None
         if self.flag_SEE:
             self.SEE_routine = SEE(
@@ -531,10 +536,6 @@ class CapacitiveDischargeExample(object):
     #######################################################################
     def run_sim(self):
 
-        # Add the ICP heating source, if necessary
-        if self.flag_ICP_heat:
-            callbacks.installafterEsolve(self.ICP_heating_source.calculate_E_ICP)
-
         # Add SEE, if necessary
         if self.flag_SEE:
             callbacks.installafterstep(self.SEE_routine.do_SEE)
@@ -559,8 +560,6 @@ class CapacitiveDischargeExample(object):
 
         # Uninstall callbacks
         callbacks.uninstallcallback('afterstep', self.picmi_diagnostics.do_diagnostics)
-        if self.flag_ICP_heat:
-            callbacks.uninstallcallback('afterEsolve', self.ICP_heating_source.calculate_E_ICP)
         if self.flag_SEE:
             callbacks.uninstallcallback('afterstep', self.SEE_routine.do_SEE)
 
