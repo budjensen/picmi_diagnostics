@@ -25,6 +25,11 @@ ng_1Torr = 322.3e20                                     # 1 Torr in m^-3
 
 class CapacitiveDischargeExample(object):
 
+    electron_name   = 'electrons'
+    ion_name        = 'Ar'
+    m_ion           = 6.63e-26                          # [kg]
+    ion_charge      = constants.q_e                     # [C]
+
     zmin            = 0.0                               # m
     zmax            = 30*milli                          # m
     freq            = 13.56e6                           # Hz
@@ -33,7 +38,6 @@ class CapacitiveDischargeExample(object):
 
     gas_density     = 30.0*ng_1Torr*milli               # [mTorr]
     gas_temp        = 300.0                             # [K]
-    m_ion           = 6.63e-26                          # [kg]
 
     plasma_density  = 9.0e14                            # [m^-3]
     elec_temp       = 2.5 * eV_in_K                     # [eV] to [K]
@@ -107,7 +111,89 @@ class CapacitiveDischargeExample(object):
 
     # Set switches for custom diagnostics
     # Create switches for custom diagnostics
-    diag_switches = {
+    diag_control = {
+        'particle': {
+            electron_name: {
+                'time_averaged': {
+                    'N':   False,
+                    'W':   False,
+                    'Jz':  False,
+                    'P_C': False,
+                    'P_I': False,
+                    'EDF': False,
+                },
+                'time_resolved': {
+                    'N':   False,
+                    'W':   False,
+                    'Jz':  False,
+                    'P_C': False,
+                    'P_I': False,
+                    'EDF': False,
+                },
+                'interval': {
+                    'N':   False,
+                    'W':   False,
+                    'Jz':  False,
+                    'P_C': False,
+                    'P_I': False,
+                    'EDF': False,
+                },
+                'properties': {
+                    'charge': -constants.q_e,
+                    'mass': constants.m_e
+                }
+            },
+            ion_name: {
+                'time_averaged': {
+                    'N':   False,
+                    'W':   False,
+                    'Jz':  False,
+                    'P_C': False,
+                    'P_I': False,
+                    'EDF': False,
+                },
+                'time_resolved': {
+                    'N':   False,
+                    'W':   False,
+                    'Jz':  False,
+                    'P_C': False,
+                    'P_I': False,
+                    'EDF': False,
+                },
+                'interval': {
+                    'N':   False,
+                    'W':   False,
+                    'Jz':  False,
+                    'P_C': False,
+                    'P_I': False,
+                    'EDF': False,
+                },
+                'properties': {
+                    'charge': ion_charge,
+                    'mass': m_ion
+                }
+            }
+        },
+        'field': {
+            'time_averaged': {
+                'E_z': False,
+                'phi': False,
+                'J_d': False,
+                'J_w': False,
+            },
+            'time_resolved': {
+                'E_z': False,
+                'phi': False,
+                'J_d': False,
+                'J_w': False,
+            },
+            'interval': {
+                'E_z': False,
+                'phi': False,
+                'J_d': False,
+                'J_w': False,
+            }
+        },
         'ieadfs': {
             'z_lo': False,
             'z_hi': False,
@@ -115,61 +201,6 @@ class CapacitiveDischargeExample(object):
         'eeadfs': {
             'z_lo': False,
             'z_hi': False,
-        },
-        'rate_ioniz' : True,
-        'time_averaged': {
-            'N_i': False,
-            'N_e': False,
-            'E_z': False,
-            'phi': False,
-            'W_e': False,
-            'W_i': False,
-            'Jze': False,
-            'Jzi': False,
-            'J_d': False,
-            'J_w': False,
-            'CPe': False,
-            'CPi': False,
-            'IPe': False,
-            'IPi': False,
-            'EEdf': False,
-            'IEdf': False
-        },
-        'time_resolved': {
-            'N_i': True,
-            'N_e': False,
-            'E_z': False,
-            'phi': True,
-            'W_e': True,
-            'W_i': True,
-            'Jze': True,
-            'Jzi': True,
-            'J_d': True,
-            'J_w': False,
-            'CPe': False,
-            'CPi': False,
-            'IPe': False,
-            'IPi': False,
-            'EEdf': False,
-            'IEdf': False
-        },
-        'interval': {
-            'N_i': False,
-            'N_e': False,
-            'E_z': False,
-            'phi': False,
-            'W_e': False,
-            'W_i': False,
-            'Jze': False,
-            'Jzi': False,
-            'J_d': False,
-            'J_w': False,
-            'CPe': False,
-            'CPi': False,
-            'IPe': False,
-            'IPi': False,
-            'EEdf': False,
-            'IEdf': False
         },
         'time_resolved_power': {
             'Pin_vst': False,
@@ -366,15 +397,15 @@ class CapacitiveDischargeExample(object):
             exit('ERROR: Enter an appropriate string for initial density.')
 
         self.electrons = picmi.Species(
-            particle_type='electron', name='electrons',
+            particle_type='electron', name=self.electron_name,
+            charge=-constants.q_e, mass=constants.m_e,
             initial_distribution=elec_distribution,
             warpx_save_particles_at_zhi = True,
             warpx_save_particles_at_zlo = True,
         )
-        ion_name = 'ar_ions'
         self.ions = picmi.Species(
-            particle_type='Ar', name=ion_name,
-            charge='q_e', mass=self.m_ion,
+            particle_type='Ar', name=self.ion_name,
+            charge=self.ion_charge, mass=self.m_ion,
             initial_distribution=ion_distribution,
             warpx_save_particles_at_zhi = True,
             warpx_save_particles_at_zlo = True,
@@ -485,7 +516,7 @@ class CapacitiveDischargeExample(object):
             name = 'periodic',
             grid = self.grid,
             period = f'{self.start_step}::{(self.max_steps - self.start_step) // 40}',
-            data_list = ['phi',f'rho_{ion_name}'],
+            data_list = ['phi',f'rho_{self.ion_name}'],
             write_dir = self.diag_outfolder,
             warpx_format = 'openpmd',
             warpx_file_min_digits = 8
@@ -516,7 +547,7 @@ class CapacitiveDischargeExample(object):
                 self.sim.extension,
                 SEE_probability=self.SEE_probability,
                 SEE_energy=self.SEE_energy,
-                SEE_spec_names=['electrons', ion_name],
+                SEE_spec_names=[self.electron_name, self.ion_name],
             )
 
         # Add custom diagnostics
@@ -524,9 +555,8 @@ class CapacitiveDischargeExample(object):
             self,
             self.sim.extension,
             SEE_obj=self.SEE_routine,
-            switches=self.diag_switches,
+            controls=self.diag_control,
             interval_times=self.interval_diag_times,
-            ion_spec_names=[ion_name],
             restart_checkpoint=self.restart_checkpoint,
             diag_outfolder=self.diag_outfolder
         )
