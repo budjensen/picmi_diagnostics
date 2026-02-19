@@ -1619,19 +1619,19 @@ class Diagnostics1D:
 
         # Get particle velocities
         try:
-            ux = np.concatenate(species_wrapper.get_particle_ux())
+            uy = np.concatenate(species_wrapper.get_particle_uy())
             w = np.concatenate(species_wrapper.get_particle_weight())
             z = np.concatenate(species_wrapper.get_particle_z())
         except ValueError:
-            ux = np.array([])
+            uy = np.array([])
             w = np.array([])
             z = np.array([])
 
         # Get the perpendicular field
-        Ex_nodes = fields.ExFPWrapper()
+        Ey_nodes = fields.EyFPWrapper()
 
         # Field is on the nodes, so average it out to the cell centers
-        Ex_centers = (Ex_nodes[:-1] + Ex_nodes[1:]) / 2
+        Ey_centers = (Ey_nodes[:-1] + Ey_nodes[1:]) / 2
 
         # Get cell index of particles
         cell_idx = np.floor(z / self.dz).astype(int)
@@ -1640,7 +1640,7 @@ class Diagnostics1D:
         frac_pos = (z / self.dz) - cell_idx
 
         # Initialize the array of the field at each particle position
-        Ex_at_particle = np.zeros(len(z))
+        Ey_at_particle = np.zeros(len(z))
 
         # Create masks to classify the particles
         mask_low_edge = (cell_idx == 0) & (frac_pos <= 0.5)
@@ -1650,38 +1650,38 @@ class Diagnostics1D:
         mask_after_center = (frac_pos >= 0.5) & ~(mask_low_edge | mask_high_edge)
 
         # Handle particles near the low edge (index 0)
-        Ex_at_particle[mask_low_edge] = Ex_centers[0]
+        Ey_at_particle[mask_low_edge] = Ey_centers[0]
 
         # Handle particles near the high edge (index nz - 1) and
         # revert all cell indices at the high edge to the last cell (this
         # prevents out of bounds errors for particles exactly at the boundary)
         cell_idx[mask_high_edge] = self.nz - 1
-        Ex_at_particle[mask_high_edge] = Ex_centers[self.nz - 1]
+        Ey_at_particle[mask_high_edge] = Ey_centers[self.nz - 1]
 
         # Handle particles before the center of the cell
         rel_position_before = frac_pos[mask_before_center] + 0.5
-        Ex_at_particle[mask_before_center] = (
-            Ex_centers[cell_idx[mask_before_center] - 1] +
-            (Ex_centers[cell_idx[mask_before_center]] - Ex_centers[cell_idx[mask_before_center] - 1]) * rel_position_before
+        Ey_at_particle[mask_before_center] = (
+            Ey_centers[cell_idx[mask_before_center] - 1] +
+            (Ey_centers[cell_idx[mask_before_center]] - Ey_centers[cell_idx[mask_before_center] - 1]) * rel_position_before
         )
 
         # Handle particles after the center of the cell
         rel_position_after = frac_pos[mask_after_center] - 0.5
-        Ex_at_particle[mask_after_center] = (
-            Ex_centers[cell_idx[mask_after_center]] +
-            (Ex_centers[cell_idx[mask_after_center] + 1] - Ex_centers[cell_idx[mask_after_center]]) * rel_position_after
+        Ey_at_particle[mask_after_center] = (
+            Ey_centers[cell_idx[mask_after_center]] +
+            (Ey_centers[cell_idx[mask_after_center] + 1] - Ey_centers[cell_idx[mask_after_center]]) * rel_position_after
         )
 
         # # Commenting this out, but writing out how to do a linear interpolation
         # # for the external particles, incase I find out this is what WarpX does
         # first_position = 1.5 - frac_pos
-        # Ex_at_particle[first_parts] = Ex_centers[1] - (Ex_centers[1] - Ex_centers[0]) * first_position
+        # Ey_at_particle[first_parts] = Ey_centers[1] - (Ey_centers[1] - Ey_centers[0]) * first_position
         # end_position = 0.5 + frac_pos
-        # Ex_at_particle[end_parts] = Ex_centers[self.nz - 2] + (Ex_centers[self.nz - 1] - Ex_centers[self.nz - 2]) * end_position
+        # Ey_at_particle[end_parts] = Ey_centers[self.nz - 2] + (Ey_centers[self.nz - 1] - Ey_centers[self.nz - 2]) * end_position
 
         # Sort by z and assign power input to cells
         temp_P = np.zeros(self.nz)
-        np.add.at(temp_P, cell_idx, ux * Ex_at_particle * w)
+        np.add.at(temp_P, cell_idx, uy * Ey_at_particle * w)
 
         # Note: We don't need to synchronize if all processes have particles
         #       that are in the same cells... The next few lines may be worth
