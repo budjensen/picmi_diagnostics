@@ -28,12 +28,13 @@ class Analysis:
 
     def _initialize_basic_attributes(self):
         '''Initialize basic boolean flags and cell diagnostics list'''
-        self.cell_diags = ['E_z', 'J_d', 'CPe', 'CPi', 'IPe', 'IPi']
+        self.cell_diags = ['E_z', 'J_d', 'P_C', 'P_I']
         self.wall_eadf_bool = False
         self.Riz_bool = False
         self.in_bool = False
         self.tr_bool = False
         self.ta_bool = False
+        self.species_names = []
 
     def _setup_directory(self, directory: str):
         '''Set up directory paths and get directory listing'''
@@ -52,6 +53,11 @@ class Analysis:
             for line in f:
                 if line.startswith('Cell size [m]='):
                     self.dz = float(line.split('=')[1])
+                    break
+        with open(f'{self.directory}/diagnostic_times.dat', 'r') as f:
+            for line in f:
+                if line.startswith('Species:'):
+                    self.species_names = [name.strip() for name in line.split(':')[1].split(',')]
                     break
 
     def _initialize_wall_eadf_data(self, quiet_startup: bool):
@@ -345,9 +351,17 @@ class Analysis:
 
     def _initialize_edf_data(self, quiet_startup: bool):
         '''Initialize energy distribution function data'''
-        edf_fields = ['EEdf', 'IEdf']
-        if not any(hasattr(self, attr) and any(field.startswith(edf) for field in getattr(self, attr))
-                  for attr in ['ta_fields', 'tr_fields', 'in_fields'] for edf in edf_fields):
+        # Check if any EDF data exists
+        has_edf_data = False
+
+        for attr in ['ta_fields', 'tr_fields', 'in_fields']:
+            if hasattr(self, attr):
+                fields = getattr(self, attr)
+                if any(field.startswith('EDF') for field in fields):
+                    has_edf_data = True
+                break
+
+        if not has_edf_data:
             return
 
         if not quiet_startup:
@@ -380,14 +394,26 @@ class Analysis:
         self.edf_box_midpoints = (self.edf_box_boundaries[:-1] + self.edf_box_boundaries[1:]) / 2
         self.edf_midpoint_node_indices = np.searchsorted(self.nodes, self.edf_box_midpoints, side='left')
 
-        # Load energy bins for each EDF type
+        # Load energy bins for relevant EDF types
         self.edf_energy = {}
-        for edf in edf_fields:
-            if any(hasattr(self, attr) and any(field.startswith(edf) for field in getattr(self, attr))
-                  for attr in ['ta_fields', 'tr_fields', 'in_fields']):
-                self.edf_energy[edf] = np.load(f'{self.directory}/{edf.lower()}_bins_eV.npy')
-                if not quiet_startup:
-                    print(f' - {edf} energy bins collected')
+        edf_field_start = ['EDF_' + species for species in self.species_names]
+        for edf_type in edf_field_start:
+            # Check if this EDF type exists in any of the field collections
+            edf_exists = False
+            for attr in ['ta_fields', 'tr_fields', 'in_fields']:
+                if hasattr(self, attr):
+                    fields = getattr(self, attr)
+                    if any(field.startswith(edf_type) for field in fields):
+                        edf_exists = True
+                        break
+
+            if edf_exists and edf_type.endswith(self.species_names[0]):
+                self.edf_energy[edf_type] = np.load(f'{self.directory}/eedf_bins_eV.npy')
+            elif edf_exists:
+                self.edf_energy[edf_type] = np.load(f'{self.directory}/iedf_bins_eV.npy')
+            if not quiet_startup:
+                print(f' - {edf_type} energy bins collected')
+
 
     def load_Riz_data_lists(self, species: str = None):
         '''
@@ -961,7 +987,7 @@ class Analysis:
                 # Unpack elements of the npz file from t01 to t{self.interval_times.size+1} into list entries
                 for ii in range(len(self.in_times)):
                     self.in_data[fld][coll][ii] = temp[f't{ii+1:02d}']
-                    if fld in ['Jze', 'Jzi']:
+                    if fld.startswith('Jz') and fld != 'Jzc':
                         self.in_data[fld][coll][ii][0] *= 2
                         self.in_data[fld][coll][ii][-1] *= 2
         return self.in_data
@@ -1123,6 +1149,10 @@ class Analysis:
             fig, ax = plt.subplots(1,1, dpi=dpi)
             return_fig = True
 
+        edf_type = None
+        if field.startswith('EDF'):
+            edf_type = f"{'_'.join(field.split('_')[:-1])}"
+
         # Make avg line
         avg_plot_type = None
         if plot_time_avg:
@@ -1159,20 +1189,7 @@ class Analysis:
                 print(f"Warning: Could not plot time averaged line for {field}. No time averaged data can be constructed.")
 
         # Get x-axis data
-        if len(self.avg_in_data[field][0]) == len(self.cells):
-            x = self.cells
-            xlabel = 'Position [m]'
-        elif len(self.avg_in_data[field][0]) == len(self.nodes):
-            x = self.nodes
-            xlabel = 'Position [m]'
-        elif field.startswith('EEdf'):
-            x = self.edf_energy['EEdf']
-            xlabel = 'Energy [eV]'
-        elif field.startswith('IEdf'):
-            x = self.edf_energy['IEdf']
-            xlabel = 'Energy [eV]'
-        else:
-            raise ValueError('Could not get x-axis data')
+        x, xlabel = self._get_x_data_and_label(x_length=len(self.avg_in_data[field][0]), field=field, edf_type=edf_type)
 
         if interval is None:
             num = len(self.in_times)
@@ -1235,7 +1252,7 @@ class Analysis:
         for fld in fields_to_load:
             for coll in self.tr_data[fld]:
                 self.tr_data[fld][coll] = np.load(f'{self.tr_colls[coll]}/{fld}.npy')
-                if fld in ['Jze', 'Jzi']:
+                if fld.startswith('Jz') and fld != 'Jzc':
                     for ii in range(len(self.tr_data[fld][coll])):
                         self.tr_data[fld][coll][ii][0] *= 2
                         self.tr_data[fld][coll][ii][-1] *= 2
@@ -1476,6 +1493,10 @@ class Analysis:
             fig, ax = plt.subplots(1,1, dpi=dpi)
             return_fig = True
 
+        edf_type = None
+        if field.startswith('EDF'):
+            edf_type = f"{'_'.join(field.split('_')[:-1])}"
+
         # Make avg line
         if not hasattr(self, 'avg_tr_data'):
             self.avg_time_resolved(field)
@@ -1483,20 +1504,7 @@ class Analysis:
             self.avg_time_resolved(field)
 
         # Get x-axis data
-        if len(self.avg_tr_data[field]) == len(self.cells):
-            x = self.cells
-            xlabel = 'Position [m]'
-        elif len(self.avg_tr_data[field]) == len(self.nodes):
-            x = self.nodes
-            xlabel = 'Position [m]'
-        elif field.startswith('EEdf'):
-            x = self.edf_energy['EEdf']
-            xlabel = 'Energy [eV]'
-        elif field.startswith('IEdf'):
-            x = self.edf_energy['IEdf']
-            xlabel = 'Energy [eV]'
-        else:
-            raise ValueError('Could not get x-axis data')
+        x, xlabel = self._get_x_data_and_label(x_length=len(self.avg_tr_data[field]), field=field, edf_type=edf_type)
 
         if collection is None:
             # Plot lines from each collection
@@ -1552,6 +1560,10 @@ class Analysis:
             fig, ax = plt.subplots(1,1, dpi=dpi)
             return_fig = True
 
+        edf_type = None
+        if field.startswith('EDF'):
+            edf_type = f"{'_'.join(field.split('_')[:-1])}"
+
         # Make avg line
         if not hasattr(self, 'avg_tr_data'):
             self.avg_time_resolved(field)
@@ -1559,23 +1571,10 @@ class Analysis:
             self.avg_time_resolved(field)
 
         # Get x-axis data
-        if len(self.avg_tr_data[field]) == len(self.cells):
-            x = self.cells
-            xlabel = 'Position [m]'
-        elif len(self.avg_tr_data[field]) == len(self.nodes):
-            x = self.nodes
-            xlabel = 'Position [m]'
-        elif field.startswith('EEdf'):
-            x = self.edf_energy['EEdf']
-            xlabel = 'Energy [eV]'
-        elif field.startswith('IEdf'):
-            x = self.edf_energy['IEdf']
-            xlabel = 'Energy [eV]'
-        else:
-            raise ValueError('Could not get x-axis data')
+        x, xlabel = self._get_x_data_and_label(x_length=len(self.avg_tr_data[field]), field=field, edf_type=edf_type)
 
         ax.plot(x, self.avg_tr_data[field], label='Average', color = 'black')
-        ax.set_xlabel('Position [m]')
+        ax.set_xlabel(xlabel)
         ax.set_ylabel(f'{field}')
         ax.set_title(f'Time averaged {field}')
         ax.margins(x=0)
@@ -1658,6 +1657,10 @@ class Analysis:
 
         fig, ax = plt.subplots(1,1, dpi=dpi)
 
+        edf_type = None
+        if field.startswith('EDF'):
+            edf_type = f"{'_'.join(field.split('_')[:-1])}"
+
         # Get plot data
         if collection is None:
             if not hasattr(self, 'avg_over_coll_tr_data'):
@@ -1681,28 +1684,13 @@ class Analysis:
             color = 'black'
 
         # Get x-axis data
-        if len(data[0]) == len(self.cells):
-            x = self.cells
-            if set_xlabel_flag:
-                xlabel = 'Position [m]'
-        elif len(data[0]) == len(self.nodes):
-            x = self.nodes
-            if set_xlabel_flag:
-                xlabel = 'Position [m]'
-        elif field.startswith('EEdf'):
-            x = self.edf_energy['EEdf']
-            if set_xlabel_flag:
-                xlabel = 'Energy [eV]'
-        elif field.startswith('IEdf'):
-            x = self.edf_energy['IEdf']
-            if set_xlabel_flag:
-                xlabel = 'Energy [eV]'
+        if set_xlabel_flag:
+            x, xlabel = self._get_x_data_and_label(x_length=len(data[0]), field=field, edf_type=edf_type)
         else:
-            raise ValueError('Could not get x-axis data')
+            x, _ = self._get_x_data_and_label(x_length=len(data[0]), field=field, edf_type=edf_type)
 
         # Plot initial frame
         line, = ax.plot(x, data[0], color=color)
-
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         ax.set_title(title)
@@ -1811,6 +1799,11 @@ class Analysis:
         # Use the length of the field to determine the number of subplots
         num_plots = len(field)
 
+        edf_type = [None] * len(field)
+        for ii, fld in enumerate(field):
+            if fld.startswith('EDF'):
+                edf_type[ii] = f"{'_'.join(fld.split('_')[:-1])}"
+
         # Set default matplotlib style
         plt.rcParams.update({'font.size': fontsize, 'xtick.labelsize': ticklabelsize, 'ytick.labelsize': ticklabelsize})
 
@@ -1859,24 +1852,10 @@ class Analysis:
         # Get x-axis data for each field
         x = []
         for ii, fld in enumerate(field):
-            if len(data[ii][0]) == len(self.cells):
-                x.append(self.cells)
-                if set_xlabel_flag:
-                    xlabel.append('Position [m]')
-            elif len(data[ii][0]) == len(self.nodes):
-                x.append(self.nodes)
-                if set_xlabel_flag:
-                    xlabel.append('Position [m]')
-            elif fld.startswith('EEdf'):
-                x.append(self.edf_energy['EEdf'])
-                if set_xlabel_flag:
-                    xlabel.append('Energy [eV]')
-            elif fld.startswith('IEdf'):
-                x.append(self.edf_energy['IEdf'])
-                if set_xlabel_flag:
-                    xlabel.append('Energy [eV]')
-            else:
-                raise ValueError(f'Could not get x-axis data for {fld}')
+            x_temp, xlabel_temp = self._get_x_data_and_label(x_length=len(data[ii][0]), field=fld, edf_type=edf_type[ii])
+            x.append(x_temp)
+            if set_xlabel_flag:
+                xlabel.append(xlabel_temp)
 
         # Plot initial frame
         lines = []
@@ -2005,6 +1984,11 @@ class Analysis:
         # Use the length of the field to determine the number of subplots
         num_plots = len(field)
 
+        edf_type = [None] * len(field)
+        for ii, fld in enumerate(field):
+            if fld.startswith('EDF'):
+                edf_type[ii] = f"{'_'.join(fld.split('_')[:-1])}"
+
         # Set default matplotlib style
         plt.rcParams.update({'font.size': fontsize, 'xtick.labelsize': ticklabelsize, 'ytick.labelsize': ticklabelsize})
 
@@ -2055,24 +2039,10 @@ class Analysis:
         # Get x-axis data for each field
         x = []
         for ii, fld in enumerate(field):
-            if len(data[ii][0]) == len(self.cells):
-                x.append(self.cells)
-                if set_xlabel_flag:
-                    xlabel.append('Position [m]')
-            elif len(data[ii][0]) == len(self.nodes):
-                x.append(self.nodes)
-                if set_xlabel_flag:
-                    xlabel.append('Position [m]')
-            elif fld.startswith('EEdf'):
-                x.append(self.edf_energy['EEdf'])
-                if set_xlabel_flag:
-                    xlabel.append('Energy [eV]')
-            elif fld.startswith('IEdf'):
-                x.append(self.edf_energy['IEdf'])
-                if set_xlabel_flag:
-                    xlabel.append('Energy [eV]')
-            else:
-                raise ValueError(f'Could not get x-axis data for {fld}')
+            x_temp, xlabel_temp = self._get_x_data_and_label(x_length=len(data[ii][0]), field=fld, edf_type=edf_type[ii])
+            x.append(x_temp)
+            if set_xlabel_flag:
+                xlabel.append(xlabel_temp)
 
         # Plot initial frame
         lines = []
@@ -2081,8 +2051,8 @@ class Analysis:
                 ax.axis('off')
                 continue
 
-            if field[ii].startswith('EEdf'):
-                norm_data = data[ii][0] / (np.sum(data[ii][0] * np.diff(self.edf_energy['EEdf'])[0]) * self.edf_energy['EEdf'] ** (0.5))
+            if field[ii].startswith('EDF'):
+                norm_data = data[ii][0] / (np.sum(data[ii][0] * np.diff(x[ii])[0]) * x[ii] ** (0.5))
                 tmp_line, = ax.plot(x[ii], norm_data, color=color[ii])
                 ax.set_yscale('log')
             else:
@@ -2109,8 +2079,8 @@ class Analysis:
 
         def update(frame):
             for ii, line in enumerate(lines):
-                if field[ii].startswith('EEdf'):
-                    norm_data = data[ii][frame] / (np.sum(data[ii][frame] * np.diff(self.edf_energy['EEdf'])[0]) * self.edf_energy['EEdf'] ** (0.5))
+                if field[ii].startswith('EDF'):
+                    norm_data = data[ii][frame] / (np.sum(data[ii][frame] * np.diff(x[ii])[0]) * x[ii] ** (0.5))
                     line.set_ydata(norm_data)
                 else:
                     line.set_ydata(data[ii][frame])
@@ -2290,7 +2260,7 @@ class Analysis:
         for fld in fields_to_load:
             for coll in self.ta_data[fld]:
                 self.ta_data[fld][coll] = np.load(f'{self.ta_colls[coll]}/{fld}.npy')
-                if fld in ['Jze', 'Jzi']:
+                if fld.startswith('Jz') and fld != 'Jzc':
                     self.ta_data[fld][coll][0] *= 2
                     self.ta_data[fld][coll][-1] *= 2
         return self.ta_data
@@ -2460,6 +2430,8 @@ class Analysis:
     def plot_intervals_time_averaged(self,
                                     field: str,
                                     plot_all_coll: bool = True,
+                                    custom_avg_label: None,
+                                    custom_avg_color: None,
                                     edf_log_plot = False,
                                     ax = None,
                                     dpi: int = 150,
@@ -2473,6 +2445,10 @@ class Analysis:
             Field to plot
         plot_all_coll : bool, default=True
             Plot all collections in the background if True
+        custom_avg_label : str, default='Average'
+            The label to use for the average line
+        custom_avg_color : str, default=None
+            The color to use for the average line
         edf_log_plot : bool, default=False
             Whether to plot the EDF in log scale on the y-axis
         ax : matplotlib.axes.Axes, default=None
@@ -2503,11 +2479,9 @@ class Analysis:
         if field not in self.avg_time_avg_in_data:
             self.avg_intervals_over_time(field)
 
-        if edf_log_plot:
-            if field.startswith('EEdf'):
-                edf_type = 'EEdf'
-            elif field.startswith('IEdf'):
-                edf_type = 'IEdf'
+        edf_type = None
+        if field.startswith('EDF'):
+            edf_type = f"{'_'.join(field.split('_')[:-1])}"
 
         return_fig = False
         if ax is None:
@@ -2515,27 +2489,14 @@ class Analysis:
             return_fig = True
 
         # Get x-axis data
-        if len(self.avg_time_avg_in_data[field]) == len(self.cells):
-            x = self.cells
-            xlabel = 'Position [m]'
-        elif len(self.avg_time_avg_in_data[field]) == len(self.nodes):
-            x = self.nodes
-            xlabel = 'Position [m]'
-        elif field.startswith('EEdf'):
-            x = self.edf_energy['EEdf']
-            xlabel = 'Energy [eV]'
-        elif field.startswith('IEdf'):
-            x = self.edf_energy['IEdf']
-            xlabel = 'Energy [eV]'
-        else:
-            raise ValueError('Could not get x-axis data')
+        x, xlabel = self._get_x_data_and_label(x_length=len(self.avg_time_avg_in_data[field]), field=field, edf_type=edf_type)
 
         if plot_all_coll:
             num = len(self.time_avg_in_data[field])
             for coll in self.time_avg_in_data[field]:
                 data = self.time_avg_in_data[field][coll]
                 if edf_log_plot:
-                    data /= self.edf_energy[edf_type] ** (0.5)
+                    data /= x ** (0.5)
                 ax.plot(x, self.time_avg_in_data[field][coll],
                         label = f'Collection {coll}',
                         alpha = 0.4,
@@ -2552,7 +2513,7 @@ class Analysis:
 
             # Rename the first line to 'Average (1)', if needed
             for line in ax.lines:
-                if line.get_label() == 'Average':
+                if custom_avg_label is not None and line.get_label() == 'Average':
                     line.set_label('Average (1)')
                     break
         else:
@@ -2560,12 +2521,20 @@ class Analysis:
             avg_label = 'Average'
             add_legend = False
 
+        if custom_avg_label is not None:
+            avg_label = custom_avg_label
+
+        if custom_avg_color is not None:
+            avg_color = custom_avg_color
+        else:
+            avg_color = 'black'
+
         if edf_log_plot:
-            ax.plot(x, self.avg_time_avg_in_data[field] / self.edf_energy[edf_type] ** (0.5),
-                    label=avg_label, color = 'black', linewidth=2, linestyle=avg_linestyle)
+            ax.plot(x, self.avg_time_avg_in_data[field] / x ** (0.5),
+                    label=avg_label, color = avg_color, linewidth=2, linestyle=avg_linestyle)
         else:
             ax.plot(x, self.avg_time_avg_in_data[field],
-                    label=avg_label, color = 'black', linewidth=2, linestyle=avg_linestyle)
+                    label=avg_label, color = avg_color, linewidth=2, linestyle=avg_linestyle)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(f'{field}')
         ax.set_title(f'Time averaged {field}')
@@ -2583,6 +2552,8 @@ class Analysis:
     def plot_time_averaged(self,
                            field: str,
                            plot_all_coll = True,
+                           custom_avg_label = None,
+                           custom_avg_color = None,
                            edf_log_plot = False,
                            ax = None,
                            dpi=150,
@@ -2596,6 +2567,10 @@ class Analysis:
             The field to plot
         plot_all_coll : bool, default=True
             Whether to plot all collections on the same axis
+        custom_avg_label : str, default='Average'
+            The label to use for the average line
+        custom_avg_color : str, default=None
+            The color to use for the average line
         edf_log_plot : bool, default=False
             Whether to plot the EDF in log scale on the y-axis
         ax : matplotlib.axes.Axes, default=None
@@ -2613,17 +2588,15 @@ class Analysis:
             raise ValueError('Time averaged data not found')
         if field not in self.ta_fields:
             raise ValueError(f'Field must be one of: {", ".join(self.ta_fields)}')
-        if edf_log_plot and not field.startswith('EEdf') and not field.startswith('IEdf'):
-            raise ValueError('Field must be one of: EEdf, IEdf')
+        if edf_log_plot and not field.startswith('EDF'):
+            raise ValueError('Field must be an EDF')
         # Check if the field has been loaded. If it unloaded, the list will be empty
         if any([len(self.ta_data[field][key]) == 0 for key in self.ta_data[field]]):
             self.load_time_averaged(field)
 
-        if edf_log_plot:
-            if field.startswith('EEdf'):
-                edf_type = 'EEdf'
-            elif field.startswith('IEdf'):
-                edf_type = 'IEdf'
+        edf_type = None
+        if field.startswith('EDF'):
+            edf_type = f"{'_'.join(field.split('_')[:-1])}"
 
         return_fig = False
         if ax is None:
@@ -2637,27 +2610,14 @@ class Analysis:
             self.avg_time_averaged(field)
 
         # Get x-axis data
-        if len(self.avg_ta_data[field]) == len(self.cells):
-            x = self.cells
-            xlabel = 'Position [m]'
-        elif len(self.avg_ta_data[field]) == len(self.nodes):
-            x = self.nodes
-            xlabel = 'Position [m]'
-        elif field.startswith('EEdf'):
-            x = self.edf_energy['EEdf']
-            xlabel = 'Energy [eV]'
-        elif field.startswith('IEdf'):
-            x = self.edf_energy['IEdf']
-            xlabel = 'Energy [eV]'
-        else:
-            raise ValueError('Could not get x-axis data')
+        x, xlabel = self._get_x_data_and_label(x_length=len(self.avg_ta_data[field]), field=field, edf_type=edf_type)
 
         if plot_all_coll:
             num = len(self.ta_data[field])
             for coll in self.ta_data[field]:
                 data = self.ta_data[field][coll]
                 if edf_log_plot:
-                    data /= self.edf_energy[edf_type] ** (0.5)
+                    data /= x ** (0.5)
                 ax.plot(x, self.ta_data[field][coll],
                         label = f'Collection {coll}',
                         alpha = 0.4,
@@ -2674,7 +2634,7 @@ class Analysis:
 
             # Rename the first line to 'Average (1)', if needed
             for line in ax.lines:
-                if line.get_label() == 'Average':
+                if custom_avg_label is not None and line.get_label() == 'Average':
                     line.set_label('Average (1)')
                     break
         else:
@@ -2682,12 +2642,20 @@ class Analysis:
             avg_label = 'Average'
             add_legend = False
 
+        if custom_avg_label is not None:
+            avg_label = custom_avg_label
+
+        if custom_avg_color is not None:
+            avg_color = custom_avg_color
+        else:
+            avg_color = 'black'
+
         if edf_log_plot:
-            ax.plot(x, self.avg_ta_data[field] / self.edf_energy[edf_type] ** (0.5),
-                    label=avg_label, color = 'black', linewidth=2, linestyle=avg_linestyle)
+            ax.plot(x, self.avg_ta_data[field] / x ** (0.5),
+                    label=avg_label, color = avg_color, linewidth=2, linestyle=avg_linestyle)
         else:
             ax.plot(x, self.avg_ta_data[field],
-                    label=avg_label, color = 'black', linewidth=2, linestyle=avg_linestyle)
+                    label=avg_label, color = avg_color, linewidth=2, linestyle=avg_linestyle)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(f'{field}')
         ax.set_title(f'Time averaged {field}')
@@ -2793,7 +2761,7 @@ class Analysis:
             Dictionary with reaction names as keys and rate coefficients as values
         """
         # Check if EEDFs are available
-        if not hasattr(self, 'edf_energy') or 'EEdf' not in self.edf_energy:
+        if not hasattr(self, 'edf_energy') or f'EDF_{self.species_names[0]}' not in self.edf_energy:
             raise ValueError("EEDFs not found. Make sure EEDFs are available in the diagnostics.")
 
         # Import cross sections if not already done
@@ -2804,14 +2772,14 @@ class Analysis:
         self.avg_time_averaged()
 
         # Get EEDF fields and sort them numerically
-        eedf_fields = [field for field in self.avg_ta_data.keys() if field.startswith('EEdf')]
+        eedf_fields = [field for field in self.avg_ta_data.keys() if field.startswith(f'EDF_{self.species_names[0]}')]
         # Sort numerically by the box number to ensure proper spatial ordering
-        eedf_fields.sort(key=lambda x: int(x.split('_')[1]) if '_' in x else 0)
+        eedf_fields.sort(key=lambda x: int(x.split('_')[2]) if '_' in x else 0)
         if not eedf_fields:
             raise ValueError("No EEDF data found in time-averaged diagnostics.")
 
         # Energy bins and spacing
-        energy_bins = self.edf_energy['EEdf']
+        energy_bins = self.edf_energy[f'EDF_{self.species_names[0]}']
         dE = np.diff(energy_bins)[0]  # Assuming uniform spacing
 
         # Initialize rate coefficient storage
@@ -3167,3 +3135,119 @@ class Analysis:
         '''
         cmap = plt.get_cmap(cmap)
         return cmap((idx + 1)/ (num_colors + 1))
+
+    def _get_x_data_and_label(self, x_length, field, edf_type):
+        """
+        Get the x-axis data and label for a given field.
+
+        Parameters
+        ----------
+        x_length : int
+            The length of the x-axis data to be returned.
+        field : str
+            The field name.
+        edf_type : str, optional
+            The EDF type if the field is an EDF field.
+
+        Returns
+        -------
+        np.ndarray
+            The x-axis data.
+        str
+            The x-axis label.
+        """
+        if len(self.avg_tr_data[field]) == len(self.cells) and not field.startswith('EDF'):
+            x = self.cells
+            xlabel = 'Position [m]'
+        elif len(self.avg_tr_data[field]) == len(self.nodes) and not field.startswith('EDF'):
+            x = self.nodes
+            xlabel = 'Position [m]'
+        elif field.startswith('EDF'):
+            x = self.edf_energy[edf_type]
+            xlabel = 'Energy [eV]'
+        else:
+            raise ValueError('Could not get x-axis data')
+
+        return x, xlabel
+
+    def get_time_averaged_power(self, type: str, species: str):
+        '''
+        Calculate the power deposited into a species from either capacitive
+        or inductive heating.
+
+        Parameters
+        ----------
+        type : str
+            The type of power to calculate. Must be either
+            'capacitive' ('c', 'cap', 'P_C') or 'inductive' ('i', 'ind', 'P_I')
+
+        species : str
+            The species name to calculate the power for.
+
+        Returns
+        -------
+        float
+            The total power deposited into the species over the entire simulation
+        np.ndarray
+            The power deposited into the species as a function of
+            diagnostic collection
+        '''
+        if not self.ta_bool:
+            raise ValueError('Time averaged data not found')
+        if type.lower() in ['capacitive', 'c', 'cap', 'p_c']:
+            field = f'P_C_{species}'
+        elif type.lower() in ['inductive', 'i', 'ind', 'p_i']:
+            field = f'P_I_{species}'
+        else:
+            raise ValueError('Type must be either "capacitive" or "inductive"')
+
+        if field not in self.ta_data:
+            try:
+                self.avg_time_averaged(field)
+            except Exception as e:
+                raise ValueError(f'Field {field} not found in time averaged data')
+
+        dz = self.dz
+        cells = self.cells
+
+        power_by_coll = np.zeros(len(self.ta_data[field]), dtype=float)
+        for coll in range(len(self.ta_data[field])):
+            power_by_coll[coll] = np.sum(self.ta_data[field][coll + 1]) * dz
+        total_power = np.average(power_by_coll)
+
+        return total_power, power_by_coll
+
+    def get_total_time_averaged_power(self, types: list, species_list: list):
+        '''
+        Calculate the total power deposited into a list of species from both
+        capacitive or inductive heating.
+
+        Parameters
+        ----------
+        types : list of str
+            The types of power to calculate. Must be either
+            'capacitive' ('c', 'cap', 'P_C') or 'inductive' ('i', 'ind', 'P_I')
+
+        species_list : list
+            A list of species names to calculate the power for.
+
+        Returns
+        -------
+        float
+            The total power deposited into the species over the entire simulation
+        dict
+            A dictionary with species names as keys and total power as values
+        '''
+        total_power = 0.0
+        power_by_type = {}
+        for type in types:
+            power_by_type[type] = {}
+            for species in species_list:
+                species_power, _ = self.get_time_averaged_power(type, species)
+                if species in power_by_type[type]:
+                    power_by_type[type][species] += species_power
+                else:
+                    power_by_type[type][species] = species_power
+                total_power += species_power
+
+        return total_power, power_by_type

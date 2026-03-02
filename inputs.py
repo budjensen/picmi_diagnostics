@@ -204,10 +204,6 @@ class CapacitiveDischargeExample(object):
         },
         'time_resolved_power': {
             'Pin_vst': False,
-            'CPe_vst': False,
-            'CPi_vst': False,
-            'IPe_vst': False,
-            'IPi_vst': False
         }
     }
 

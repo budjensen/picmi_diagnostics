@@ -1033,7 +1033,8 @@ class Diagnostics1D:
             f.write('Simualtion Parameters\n')
             f.write('---------------------\n')
             f.write(f'Timestep [s]={self.dt}\n')
-            f.write(f'Cell size [m]={self.dz}\n\n')
+            f.write(f'Cell size [m]={self.dz}\n')
+            f.write(f'Species: {", ".join(self.species_names)}\n\n')
 
             f.write('Diagnostic Parameters\n')
             f.write('---------------------\n')
@@ -1104,12 +1105,12 @@ class Diagnostics1D:
             np.save(f"{self.wall_eadf_dir_by_species[self.electron_name]}/bins_deg.npy", self.eeadf_bin_centers)
 
         # Save the normal EDF settings
-        if any(dict.get('EEdf') for dict in self.master_diagnostic_dict.values()):
+        if any(dict.get(f'EDF_{self.electron_name}') for dict in self.master_diagnostic_dict.values()):
             # Save the eedf energy bins
             self._check_file(f'{self.diag_folder}/eedf_bins_eV.npy')
             np.save(f'{self.diag_folder}/eedf_bins_eV.npy', self.eedf_bin_centers)
 
-        if any(dict.get('IEdf') for dict in self.master_diagnostic_dict.values()):
+        if any(dict.get(f'EDF_{species}') for dict in self.master_diagnostic_dict.values() for species in self.species_names[1:]):
             self._check_file(f'{self.diag_folder}/iedf_bins_eV.npy')
             np.save(f'{self.diag_folder}/iedf_bins_eV.npy', self.iedf_bin_centers)
 
