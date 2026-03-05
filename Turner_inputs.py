@@ -88,11 +88,14 @@ class CapacitiveDischargeExample(object):
         'particle': {
             electron_name: {
                 'time_averaged': {
-                    'N':   True,
+                    'N':   False,
                     'W':   False,
                     'Jz':  False,
                     'P_C': False,
                     'EDF': False,
+                    'ExDF': False,
+                    'EyDF': False,
+                    'EzDF': False,
                 },
                 'interval': {
                     'N':   False,
@@ -103,12 +106,20 @@ class CapacitiveDischargeExample(object):
                 },
                 'properties': {
                     'charge': -constants.q_e,
-                    'mass': constants.m_e
+                    'mass': constants.m_e,
+                    'max_edf': eedf_max_eV,
+                    'num_bins_edf': num_bins,
+                    'max_exdf': eedf_max_eV,
+                    'max_eydf': eedf_max_eV,
+                    'max_ezdf': eedf_max_eV,
+                    'num_bins_exdf': 2 * num_bins,
+                    'num_bins_eydf': 2 * num_bins,
+                    'num_bins_ezdf': 2 * num_bins,
                 }
             },
             ion_name: {
                 'time_averaged': {
-                    'N':   False,
+                    'N':   True,
                     'W':   False,
                     'Jz':  False,
                     'P_C': False,
@@ -123,7 +134,7 @@ class CapacitiveDischargeExample(object):
         'field': {
             'time_averaged': {
                 'E_z': False,
-                'phi': False,
+                'phi': True,
                 'J_d': False,
                 'J_w': False,
             },

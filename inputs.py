@@ -121,6 +121,9 @@ class CapacitiveDischargeExample(object):
                     'P_C': False,
                     'P_I': False,
                     'EDF': False,
+                    'ExDF': False,
+                    'EyDF': False,
+                    'EzDF': False,
                 },
                 'time_resolved': {
                     'N':   False,
@@ -140,7 +143,15 @@ class CapacitiveDischargeExample(object):
                 },
                 'properties': {
                     'charge': -constants.q_e,
-                    'mass': constants.m_e
+                    'mass': constants.m_e,
+                    'max_edf': eedf_max_eV,
+                    'num_bins_edf': num_bins,
+                    'max_exdf': eedf_max_eV,
+                    'max_eydf': eedf_max_eV,
+                    'max_ezdf': eedf_max_eV,
+                    'num_bins_exdf': 2 * num_bins,
+                    'num_bins_eydf': 2 * num_bins,
+                    'num_bins_ezdf': 2 * num_bins,
                 }
             },
             ion_name: {
@@ -170,7 +181,15 @@ class CapacitiveDischargeExample(object):
                 },
                 'properties': {
                     'charge': ion_charge,
-                    'mass': m_ion
+                    'mass': m_ion,
+                    'max_edf': iedf_max_eV,
+                    'num_bins_edf': num_bins,
+                    'max_exdf': iedf_max_eV,
+                    'max_eydf': iedf_max_eV,
+                    'max_ezdf': iedf_max_eV,
+                    'num_bins_exdf': 2 * num_bins,
+                    'num_bins_eydf': 2 * num_bins,
+                    'num_bins_ezdf': 2 * num_bins,
                 }
             }
         },
