@@ -314,7 +314,7 @@ class SEE:
 class Diagnostics1D:
 
     PARTICLE_DIAGNOSTIC_PREFIXES = ['N', 'W', 'Jz', 'P_C', 'P_I', 'EDF', 'ExDF', 'EyDF', 'EzDF']
-    FIELD_DIAGNOSTICS = ['E_z', 'phi', 'J_d', 'J_w']
+    FIELD_DIAGNOSTICS = ['E_z', 'E_y', 'E_x', 'phi', 'J_d', 'J_w']
 
     def __init__(self,
                  simulation_obj: CapacitiveDischargeExample,
@@ -400,6 +400,8 @@ class Diagnostics1D:
             'field': {
                 'time_averaged': {
                     'E_z': True,
+                    'E_y': False, # This should be zero unless running an ICP simulation
+                    'E_x': False, # This should be zero unless you explicitly set it with wrappers
                     'phi': True,
                     'J_d': True,
                     'J_w': True
@@ -599,7 +601,11 @@ class Diagnostics1D:
                        for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('P_I_')}
 
         # Field diagnostics
-        self.tr_E_z = np.zeros((self.tr_coll[0], self.nz))
+        self.tr_E = {
+            'z': np.zeros((self.tr_coll[0], self.nz)),
+            'y': np.zeros((self.tr_coll[0], self.nz + 1)),
+            'x': np.zeros((self.tr_coll[0], self.nz + 1))
+        }
         self.tr_phi = np.zeros((self.tr_coll[0], self.nz + 1))
         self.tr_J_d = np.zeros((self.tr_coll[0], self.nz))
         self.tr_J_w = np.zeros((self.tr_coll[0], 2))
@@ -634,7 +640,11 @@ class Diagnostics1D:
                        for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('P_I_')}
 
         # Field diagnostics
-        self.ta_E_z = np.zeros(self.nz)
+        self.ta_E = {
+            'z': np.zeros(self.nz),
+            'y': np.zeros(self.nz + 1),
+            'x': np.zeros(self.nz + 1)
+        }
         self.ta_phi = np.zeros(self.nz + 1)
         self.ta_J_d = np.zeros(self.nz)
         self.ta_J_w = np.zeros(2)
@@ -664,7 +674,11 @@ class Diagnostics1D:
                        for key in self.master_diagnostic_dict['interval'] if key.startswith('P_I_')}
 
         # Field diagnostics
-        self.in_E_z = np.zeros((len(self.in_slices), self.nz))
+        self.in_E = {
+            'z': np.zeros((len(self.in_slices), self.nz)),
+            'y': np.zeros((len(self.in_slices), self.nz + 1)),
+            'x': np.zeros((len(self.in_slices), self.nz + 1))
+        }
         self.in_phi = np.zeros((len(self.in_slices), self.nz + 1))
         self.in_J_d = np.zeros((len(self.in_slices), self.nz))
         self.in_J_w = np.zeros((len(self.in_slices), 2))
@@ -713,10 +727,15 @@ class Diagnostics1D:
                     elif diag == 'EzDF':
                         self.Ezdf[species] = np.zeros((len(self.edf_bounds) + 1, len(self.evdf_centers_by_diag_name[f'EzDF_{species}'])))
 
+        # Field diagnostics are always initialized since their number is small
         self.J_w = np.zeros(2)
-        self.E = np.zeros(self.nz)
+        self.E = {
+            'z': np.zeros(self.nz),
+            'y': np.zeros(self.nz + 1),
+            'x': np.zeros(self.nz + 1)
+        }
         self.phi = np.zeros(self.nz + 1)
-        self.E_last_step = np.zeros(self.nz)
+        self.E_z_last_step = np.zeros(self.nz)
 
     def _save_shared_variables(self):
         '''
@@ -726,11 +745,16 @@ class Diagnostics1D:
         self._Ez_wrapper = fields.EzFPWrapper()
         self._current_Ez_data = np.zeros(self.nz)
 
+        self._Ey_wrapper = fields.EyFPWrapper()
+        self._current_Ey_data = np.zeros(self.nz + 1)
+
         self.VELOCITY_SYNC_PREFIXES = ('Jz_', 'P_C_', 'P_I_', 'W_')
 
         # Diagnostic updates
         self.FIELD_DISPATCH = {
-            'E_z': self.update_E,
+            'E_z': lambda: self.update_E('z'),
+            'E_y': lambda: self.update_E('y'),
+            'E_x': lambda: self.update_E('x'),
             'phi': self.update_phi,
             'J_d': self.update_J_d,
             'J_w': self.update_J_w,
@@ -1294,7 +1318,7 @@ class Diagnostics1D:
                                         ('time_resolved', time_resolved_dict),
                                         ('interval', interval_dict)]:
             field_dict = fields_dict.get(diag_type, {})
-            for field_name in ['E_z', 'phi', 'J_d', 'J_w']:
+            for field_name in self.FIELD_DIAGNOSTICS:
                 if field_dict.get(field_name, False):
                     target_dict[field_name] = True
 
@@ -1578,11 +1602,22 @@ class Diagnostics1D:
         self.J_w[0] = J_w_lo[0]
         self.J_w[1] = J_w_hi[0]
 
-    def update_E(self):
+    def update_E(self, direction: str):
         '''
         Return electric field at node points
+
+        Parameters
+        ----------
+        direction: str
+            Direction of electric field to update ('x', 'y', or 'z')
         '''
-        self.E = self._current_Ez_data
+        match direction:
+            case 'x':
+                self.E['x'] = fields.ExFPWrapper()[...]
+            case 'y':
+                self.E['y'] = self._Ey_wrapper[...]
+            case 'z':
+                self.E['z'] = self._current_Ez_data
 
     def update_phi(self):
         '''
@@ -1615,11 +1650,8 @@ class Diagnostics1D:
             w = np.array([])
             z = np.array([])
 
-        # Get the perpendicular field
-        Ey_nodes = fields.EyFPWrapper()
-
         # Field is on the nodes, so average it out to the cell centers
-        Ey_centers = (Ey_nodes[:-1] + Ey_nodes[1:]) / 2
+        Ey_centers = (self._current_Ey_data[:-1] + self._current_Ey_data[1:]) / 2
 
         # Get cell index of particles
         cell_idx = np.floor(z / self.dz).astype(int)
@@ -1782,7 +1814,7 @@ class Diagnostics1D:
             self.E = self._current_Ez_data
 
         # Calculate the displacement current density
-        self.J_d = self.E - self.E_last_step
+        self.J_d = self.E['z'] - self.E_z_last_step
 
     def calculate_edf(self, species: str):
         '''
@@ -2087,8 +2119,16 @@ class Diagnostics1D:
                 _, slice_idx = self.step_to_interval_map[self.curr_diag_output][step]
 
         # Presave the electric field, if needed
-        if any(d.get(k) for d in self.master_diagnostic_dict.values() for k in ('E_z', 'J_d', 'CPe', 'CPi')) or save_E_last_step:
+        if any(
+            d.get('E_z', False) or d.get('J_d', False) or any(k.startswith('P_C') and v for k, v in d.items())
+            for d in self.master_diagnostic_dict.values()
+        ) or save_E_last_step:
             np.copyto(self._current_Ez_data, self._Ez_wrapper[...])
+        if any(
+            d.get('E_y', False) or any(k.startswith('P_I') and v for k, v in d.items())
+            for d in self.master_diagnostic_dict.values()
+        ):
+            np.copyto(self._current_Ey_data, self._Ey_wrapper[...])
 
         # Update arrays for diagnostics
         # Save which fields need to be updated this timestep
@@ -2135,7 +2175,7 @@ class Diagnostics1D:
 
         # Save the electric field for the displacement current
         if save_E_last_step:
-            self.E_last_step = self._current_Ez_data
+            self.E_z_last_step = self._current_Ez_data
 
         # Finalize and save diagnostics
         if step == self.diag_stop[self.curr_diag_output]:
@@ -2201,8 +2241,9 @@ class Diagnostics1D:
                     self.tr_EVDF[key][tr_idx] += getattr(self, f'{evdf_prefix[:2]}df')[species]
 
         # Field diagnostics
-        if temp_settings.get('E_z', False):
-            self.tr_E_z[tr_idx] = self.E
+        for dir in ('z', 'y', 'x'):
+            if temp_settings.get(f'E_{dir}', False):
+                self.tr_E[dir][tr_idx] = self.E[dir]
         if temp_settings.get('phi', False):
             self.tr_phi[tr_idx] = self.phi
         if temp_settings.get('J_d', False):
@@ -2241,8 +2282,9 @@ class Diagnostics1D:
                     self.ta_EVDF[key] += getattr(self, f'{evdf_prefix[:2]}df')[species]
 
         # Field diagnostics
-        if temp_settings.get('E_z', False):
-            self.ta_E_z += self.E
+        for dir in ('z', 'y', 'x'):
+            if temp_settings.get(f'E_{dir}', False):
+                self.ta_E[dir] += self.E[dir]
         if temp_settings.get('phi', False):
             self.ta_phi += self.phi
         if temp_settings.get('J_d', False):
@@ -2284,8 +2326,9 @@ class Diagnostics1D:
                     self.in_EVDF[key][interval_idx] += getattr(self, f'{evdf_prefix[:2]}df')[species]
 
         # Field diagnostics
-        if temp_settings.get('E_z', False):
-            self.in_E_z[interval_idx] += self.E
+        for dir in ('z', 'y', 'x'):
+            if temp_settings.get(f'E_{dir}', False):
+                self.in_E[dir][interval_idx] += self.E[dir]
         if temp_settings.get('phi', False):
             self.in_phi[interval_idx] += self.phi
         if temp_settings.get('J_d', False):
@@ -2326,7 +2369,11 @@ class Diagnostics1D:
                        for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('P_I_')}
 
         # Field diagnostics (not species-specific)
-        self.tr_E_z = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
+        self.tr_E = {
+            'z': np.zeros((self.tr_coll[self.curr_diag_output], self.nz)),
+            'y': np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1)),
+            'x': np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
+        }
         self.tr_phi = np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
         self.tr_J_d = np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
         self.tr_J_w = np.zeros((self.tr_coll[self.curr_diag_output], 2))
@@ -2361,7 +2408,11 @@ class Diagnostics1D:
                        for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('P_I_')}
 
         # Field diagnostics (not species-specific)
-        self.ta_E_z = np.zeros(self.nz)
+        self.ta_E = {
+            'z': np.zeros(self.nz),
+            'y': np.zeros(self.nz + 1),
+            'x': np.zeros(self.nz + 1)
+        }
         self.ta_phi = np.zeros(self.nz + 1)
         self.ta_J_d = np.zeros(self.nz)
         self.ta_J_w = np.zeros(2)
@@ -2391,7 +2442,11 @@ class Diagnostics1D:
                        for key in self.master_diagnostic_dict['interval'] if key.startswith('P_I_')}
 
         # Field diagnostics (not species-specific)
-        self.in_E_z = np.zeros((len(self.in_slices), self.nz))
+        self.in_E = {
+            'z': np.zeros((len(self.in_slices), self.nz)),
+            'y': np.zeros((len(self.in_slices), self.nz + 1)),
+            'x': np.zeros((len(self.in_slices), self.nz + 1))
+        }
         self.in_phi = np.zeros((len(self.in_slices), self.nz + 1))
         self.in_J_d = np.zeros((len(self.in_slices), self.nz))
         self.in_J_w = np.zeros((len(self.in_slices), 2))
@@ -2484,8 +2539,9 @@ class Diagnostics1D:
                     self.ta_EVDF[f'{prefix}_{species}'] /= collections
 
             else:
-                if key == 'E_z':
-                    self.ta_E_z /= collections
+                for dir in ('z', 'y', 'x'):
+                    if key == f'E_{dir}':
+                        self.ta_E[dir] /= collections
                 if key == 'phi':
                     self.ta_phi /= collections
                 if key == 'J_d':
@@ -2555,11 +2611,12 @@ class Diagnostics1D:
                         self.in_EVDF[f'{prefix}_{species}'][ii] /= collection_counts[ii]
 
             else:
-                if key == 'E_z':
-                    for ii in range(len(self.in_slices)):
-                        if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
-                            continue
-                        self.in_E_z[ii] /= collection_counts[ii]
+                for dir in ('z', 'y', 'x'):
+                    if key == f'E_{dir}':
+                        for ii in range(len(self.in_slices)):
+                            if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
+                                continue
+                            self.in_E[dir][ii] /= collection_counts[ii]
                 if key == 'phi':
                     for ii in range(len(self.in_slices)):
                         if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
@@ -2636,7 +2693,10 @@ class Diagnostics1D:
 
             if key in self.FIELD_DIAGNOSTICS:
                 filename = os.path.join(tr_folder, f'{key}.npy')
-                diag_attr = getattr(self, f'tr_{key}')
+                if key in ['E_z', 'E_y', 'E_x']:
+                    diag_attr = getattr(self, f'tr_E')[key.split('_')[1]]
+                else:
+                    diag_attr = getattr(self, f'tr_{key}')
                 np.save(filename, diag_attr)
                 continue
 
@@ -2681,7 +2741,10 @@ class Diagnostics1D:
 
             if key in self.FIELD_DIAGNOSTICS:
                 filename = os.path.join(ta_folder, f'{key}.npy')
-                diag_attr = getattr(self, f'ta_{key}')
+                if key in ['E_z', 'E_y', 'E_x']:
+                    diag_attr = getattr(self, f'ta_E')[key.split('_')[1]]
+                else:
+                    diag_attr = getattr(self, f'ta_{key}')
                 np.save(filename, diag_attr)
                 continue
 
@@ -2719,7 +2782,10 @@ class Diagnostics1D:
 
                 if key in self.FIELD_DIAGNOSTICS:
                     filename = os.path.join(in_folder, f'{key}.npy')
-                    diag_attr = getattr(self, f'in_{key}')
+                    if key in ['E_z', 'E_y', 'E_x']:
+                        diag_attr = getattr(self, f'in_E')[key.split('_')[1]]
+                    else:
+                        diag_attr = getattr(self, f'in_{key}')
                     np.save(filename, diag_attr)
                     continue
 

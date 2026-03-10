@@ -196,18 +196,24 @@ class CapacitiveDischargeExample(object):
         'field': {
             'time_averaged': {
                 'E_z': False,
+                'E_y': False,
+                'E_x': False,
                 'phi': False,
                 'J_d': False,
                 'J_w': False,
             },
             'time_resolved': {
                 'E_z': False,
+                'E_y': False,
+                'E_x': False,
                 'phi': False,
                 'J_d': False,
                 'J_w': False,
             },
             'interval': {
                 'E_z': False,
+                'E_y': False,
+                'E_x': False,
                 'phi': False,
                 'J_d': False,
                 'J_w': False,
