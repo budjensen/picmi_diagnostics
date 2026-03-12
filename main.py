@@ -2175,7 +2175,7 @@ class Diagnostics1D:
 
         # Save the electric field for the displacement current
         if save_E_last_step:
-            self.E_z_last_step = self._current_Ez_data
+            np.copyto(self.E_z_last_step, self._current_Ez_data)
 
         # Finalize and save diagnostics
         if step == self.diag_stop[self.curr_diag_output]:
