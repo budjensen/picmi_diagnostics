@@ -1232,7 +1232,7 @@ class Analysis:
             num = len(self.in_times)
             for ii in range(num):
                 ax.plot(x, self.avg_in_data[field][ii],
-                        label = f't={self.in_times[ii]}*T',
+                        label = f't={self.in_times[ii]:.3f}*T',
                         color = self._color_chooser(ii, num, cmap = cmap))
             ax.set_title(f'{field} intervals')
 
@@ -1248,9 +1248,9 @@ class Analysis:
 
         else:
             ax.plot(x, self.avg_in_data[field][interval],
-                    label = f't={self.in_times[interval]}*T',
+                    label = f't={self.in_times[interval]:.3f}*T',
                     color = self._color_chooser(interval, len(self.in_times), cmap = cmap))
-            ax.set_title(f'{field} at t = {self.in_times[interval]}*T')
+            ax.set_title(f'{field} at t = {self.in_times[interval]:.3f}*T')
         ax.set_xlabel(xlabel)
         ax.set_ylabel(f'{field}')
         ax.margins(x=0)

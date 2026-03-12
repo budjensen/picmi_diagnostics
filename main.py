@@ -2781,12 +2781,13 @@ class Diagnostics1D:
                     continue
 
                 if key in self.FIELD_DIAGNOSTICS:
-                    filename = os.path.join(in_folder, f'{key}.npy')
+                    filename = os.path.join(in_folder, f'{key}.npz')
                     if key in ['E_z', 'E_y', 'E_x']:
                         diag_attr = getattr(self, f'in_E')[key.split('_')[1]]
                     else:
                         diag_attr = getattr(self, f'in_{key}')
-                    np.save(filename, diag_attr)
+                    arrays_dict = {f't{i+1:02d}': diag_attr[i] for i in range(len(self.in_slices))}
+                    np.savez(filename, **arrays_dict)
                     continue
 
                 prefix = '_'.join(key.split('_')[:-1])
@@ -2808,7 +2809,7 @@ class Diagnostics1D:
                         np.savez(filename, **arrays_dict)
                     continue
 
-                # Handle particle and field diagnostics
+                # Handle particle diagnostics
                 filename = os.path.join(in_folder, f'{key}.npz')
                 diag_attr = getattr(self, f'in_{prefix}')
                 if isinstance(diag_attr, dict):
