@@ -1811,7 +1811,7 @@ class Diagnostics1D:
         '''
         # Save the electric field from the current time step, if not already done
         if not any(dict.get('E_z') for dict in self.master_diagnostic_dict.values()):
-            self.E = self._current_Ez_data
+              self.E['z'] = self._current_Ez_data
 
         # Calculate the displacement current density
         self.J_d = self.E['z'] - self.E_z_last_step
