@@ -365,10 +365,6 @@ class Diagnostics1D:
         species_controls = {
             'particle': {
                 'species_name': {
-                    'collisional': True, # Need to have collisions named 'coll_species_name' and
-                                         # have collision tracking turned on in the collision class.
-                                         # Returns power transfered into the gas in [W/m^3].
-                                         # Make sure to clear the collision data before first diagnostic collection.
                     'time_averaged': {
                         'N': True,
                         'W': True,
@@ -410,6 +406,13 @@ class Diagnostics1D:
                     'J_d': True,
                     'J_w': True
                 },
+            },
+            'collision': {
+                'coll_name_1': True, # WarpX collision name. Must have enable_collision_tracking=True
+                                     # in the MCCCollisions or RecombinationCollisions object.
+                                     # Saves collision rate [m^-3 s^-1] and energy transfer rate
+                                     # [W/m^3] for each scattering process to the time_averaged folder.
+                'coll_name_2': False,
             },
             'ieadfs': {'z_lo': True, 'z_hi': True},
             'eeadfs': {'z_lo': False, 'z_hi': False},
@@ -1267,7 +1270,6 @@ class Diagnostics1D:
         time_averaged_dict = {}
         time_resolved_dict = {}
         interval_dict = {}
-        collisional_dict = {}
 
         # Process each species
         for species_name in self.species_names:
@@ -1294,10 +1296,8 @@ class Diagnostics1D:
                 if in_dict.get(diag, False):
                     interval_dict[f'{diag}{suffix}'] = True
 
-            # Process collisional diagnostics
-            coll_dict = species_data.get('collisional', False)
-            if coll_dict:
-                collisional_dict[f'coll_{species_name}'] = True
+        # Process collision diagnostics (top-level collision names, e.g. 'coll_elec', 'e_h3_recombination')
+        collisional_dict = switches.get('collision', {})
 
         # Build EDF bins
         self.edf_edges_by_species = {}
@@ -2700,13 +2700,11 @@ class Diagnostics1D:
                     print(f"Warning: No collision data available for {key} at step {step}. Skipping saving for this diagnostic.")
                     continue
                 for process_name in coll_data[key]:
-                    species = '_'.join(key.split('_')[1:])
-
-                    filename = os.path.join(ta_folder, f'coll-rate_{species}_{process_name}.npy')
+                    filename = os.path.join(ta_folder, f'coll-rate_{key}_{process_name}.npy')
                     rate = coll_data[key][process_name][0] / coll_collection_time / self.dz
                     np.save(filename, rate)
 
-                    filename = os.path.join(ta_folder, f'coll-energy_{species}_{process_name}.npy')
+                    filename = os.path.join(ta_folder, f'coll-energy_{key}_{process_name}.npy')
                     en_rate = coll_data[key][process_name][1] / coll_collection_time / self.dz
                     np.save(filename, en_rate)
 

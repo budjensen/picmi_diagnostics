@@ -114,7 +114,6 @@ class CapacitiveDischargeExample(object):
     diag_control = {
         'particle': {
             electron_name: {
-                'collisional': False,
                 'time_averaged': {
                     'N':   False,
                     'W':   False,
@@ -156,7 +155,6 @@ class CapacitiveDischargeExample(object):
                 }
             },
             ion_name: {
-                'collisional': False,
                 'time_averaged': {
                     'N':   False,
                     'W':   False,
@@ -220,6 +218,10 @@ class CapacitiveDischargeExample(object):
                 'J_d': False,
                 'J_w': False,
             }
+        },
+        'collision': {
+            electron_name: False,
+            ion_name: False,
         },
         'ieadfs': {
             'z_lo': False,
@@ -441,13 +443,13 @@ class CapacitiveDischargeExample(object):
 
         cross_sec_direc = '/home/bj8080/src/warpx-data/MCC_cross_sections/Ar/'
         electron_colls = picmi.MCCCollisions(
-            name=f'coll_{self.electron_name}',
+            name=self.electron_name,
             species=self.electrons,
             background_density=self.gas_density,
             background_temperature=self.gas_temp,
             background_mass=self.ions.mass,
             ndt=self.mcc_subcycling_steps,
-            enable_collision_tracking=self.diag_control['particle'][self.electron_name]['collisional'],
+            enable_collision_tracking=self.diag_control['collision'].get(self.electron_name, False),
             scattering_processes={
                 'elastic' : {
                     'cross_section' : cross_sec_direc+'electron_scattering.dat'
@@ -469,13 +471,13 @@ class CapacitiveDischargeExample(object):
             'back': {'cross_section': cross_sec_direc+'ion_back_scatter.dat'},
         }
         ion_colls = picmi.MCCCollisions(
-            name=f'coll_{self.ion_name}',
+            name=self.ion_name,
             species=self.ions,
             background_density=self.gas_density,
             background_temperature=self.gas_temp,
             ndt=self.mcc_subcycling_steps,
             scattering_processes=ion_scattering_processes,
-            enable_collision_tracking=self.diag_control['particle'][self.ion_name]['collisional'],
+            enable_collision_tracking=self.diag_control['collision'].get(self.ion_name, False),
         )
 
         #######################################################################
@@ -609,10 +611,10 @@ class CapacitiveDischargeExample(object):
         particle_buffer.clear_buffer()
 
         # Clear collision tracking wrapper
-        for species_name in [self.electron_name, self.ion_name]:
-            if self.diag_control['particle'][species_name]['collisional']:
-                collision_tracker = collision_trackers.CollisionBufferWrapper()
-                collision_tracker.clear_buffers([f'coll_{species_name}'], level=0)
+        active_coll_names = [name for name, enabled in self.diag_control.get('collision', {}).items() if enabled]
+        if active_coll_names:
+            collision_tracker = collision_trackers.CollisionBufferWrapper()
+            collision_tracker.clear_buffers(active_coll_names, level=0)
 
         callbacks.installafterstep(self.picmi_diagnostics.do_diagnostics)
 
