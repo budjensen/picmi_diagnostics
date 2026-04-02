@@ -50,6 +50,8 @@ class Analysis:
             'E_z': 'Electric Field [V/m]',
             'phi': 'Potential [V]',
             'J_d': 'Displacement Current Density [A/m$^2$]',
+            'coll-rate': 'Collision Rate [m$^{-3}$s$^{-1}$]',
+            'coll-energy': 'Collisional Power Loss [W/m$^3$]',
         }
 
     def _setup_directory(self, directory: str):
@@ -802,6 +804,7 @@ class Analysis:
                       species: str = None,
                       separate_rl: bool = False,
                       normalize: bool = True,
+                      ax = None,
                       dpi=150):
         '''
         Plot the collection-averaged wall EDF data
@@ -814,6 +817,8 @@ class Analysis:
             Average the left and right wall EDF data separately if True
         normalize : bool
             Normalize the wall EDF data
+        ax: matplotlib.axes.Axes, default=None
+            The axes to plot on. If None, creates a new figure and axes.
         dpi : int
             The DPI of the plot
 
@@ -834,8 +839,13 @@ class Analysis:
             edfs = self.normalize_wall_edf()
         else:
             edfs = self.avg_wall_edf_data
-        if species is None:
+
+        return_fig = False
+        if ax is None:
             fig, ax = plt.subplots(1,1, dpi=dpi)
+            return_fig = True
+
+        if species is None:
             for spec in edfs:
                 if isinstance(edfs[spec], dict):
                     for wall in edfs[spec]:
@@ -850,7 +860,6 @@ class Analysis:
             ax.set_title('Simulation Wall EDF')
             ax.margins(x=0)
         else:
-            fig, ax = plt.subplots(1,1, dpi=dpi)
             if isinstance(edfs[species], dict):
                 for wall in edfs[species]:
                     ax.plot(self.wall_eadf_energy[species], edfs[species][wall], label = f'{wall} {species}')
@@ -864,7 +873,10 @@ class Analysis:
             ax.set_title('Simulation Wall EDF')
             ax.margins(x=0)
 
-        return fig, ax
+        if return_fig:
+            return fig, ax
+        else:
+            return ax
 
     def normalize_wall_edf(self):
         '''
@@ -1630,6 +1642,8 @@ class Analysis:
                               color: str = None,
                               xlim: list[tuple] = None,
                               ylim: list[tuple] = None,
+                              normalize: bool = False,
+                              log_plot: bool = False,
                               fontsize: int = 12,
                               ticklabelsize: int = 10,
                               dpi=150,
@@ -1726,12 +1740,19 @@ class Analysis:
         else:
             x, _ = self._get_x_data_and_label(x_length=len(data[0]), field=field, edf_type=edf_type)
 
+        if normalize:
+            data = [self._normalize_edf(d, np.diff(x)[i]) for i, d in enumerate(data)]
+        if log_plot:
+            data = [d / np.abs(x)**0.5 for d in data]
+
         # Plot initial frame
         line, = ax.plot(x, data[0], color=color)
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
         ax.set_title(title)
         ax.margins(x=0)
+        if log_plot:
+            ax.set_yscale('log')
 
         def update(frame):
             line.set_ydata(data[frame])
@@ -1848,7 +1869,7 @@ class Analysis:
         if num_plots == 1:
             fig, axs = plt.subplots(1,1, dpi=dpi)
         elif num_plots == 2:
-            fig, axs = plt.subplots(1,2, dpi=dpi)
+            fig, axs = plt.subplots(1,2, dpi=dpi, figsize=(9,3))
         elif num_plots < 5:
             fig, axs = plt.subplots(2, 2, dpi=dpi)
         elif num_plots < 10:
@@ -1959,6 +1980,8 @@ class Analysis:
                                    color: list[str] = None,
                                    xlim: list[tuple] = None,
                                    ylim: list[tuple] = None,
+                                   normalize: list[bool] = [False]*3,
+                                   log_plot: list[bool] = [False]*3,
                                    fontsize: int = 12,
                                    ticklabelsize: int = 10,
                                    dpi=150,
@@ -1989,6 +2012,10 @@ class Analysis:
             The x-axis limits
         ylim : list[tuple], default=None
             The y-axis limits
+        normalize: list[bool], default=[False]*3
+            Whether to normalize the EDF
+        log_plot: list[bool], default=[False]*3
+            Whether to plot the y-axis on a log scale
         fontsize : int, default=12
             The fontsize of the labels
         ticklabelsize : int, default=10
@@ -2023,7 +2050,7 @@ class Analysis:
 
         edf_type = [None] * len(field)
         for ii, fld in enumerate(field):
-            if fld.startswith('EDF'):
+            if fld.startswith(('EDF', 'ExDF', 'EyDF', 'EzDF')):
                 edf_type[ii] = f"{'_'.join(fld.split('_')[:-1])}"
 
         # Set default matplotlib style
@@ -2033,7 +2060,7 @@ class Analysis:
         if num_plots == 1:
             fig, axs = plt.subplots(1,1, dpi=dpi)
         elif num_plots == 2:
-            fig, axs = plt.subplots(1,2, dpi=dpi)
+            fig, axs = plt.subplots(1,2, dpi=dpi, figsize=(9,4))
         elif num_plots == 3:
             fig, axs = plt.subplots(1,3, dpi=dpi, figsize=(12,4))
         elif num_plots < 5:
@@ -2081,6 +2108,13 @@ class Analysis:
             if set_xlabel_flag:
                 xlabel.append(xlabel_temp)
 
+        for ii in range(len(data)):
+            if normalize[ii]:
+                data[ii] = [self._normalize_edf(d, np.diff(x[ii])[i]) for i, d in enumerate(data[ii])]
+        for ii in range(len(data)):
+            if log_plot[ii]:
+                data[ii] = [d / np.abs(x[ii])**0.5 for d in data[ii]]
+
         # Plot initial frame
         lines = []
         for ii, ax in enumerate(axs.flat):
@@ -2088,12 +2122,7 @@ class Analysis:
                 ax.axis('off')
                 continue
 
-            if field[ii].startswith('EDF'):
-                norm_data = data[ii][0] / (np.sum(data[ii][0] * np.diff(x[ii])[0]) * x[ii] ** (0.5))
-                tmp_line, = ax.plot(x[ii], norm_data, color=color[ii])
-                ax.set_yscale('log')
-            else:
-                tmp_line, = ax.plot(x[ii], data[ii][0], color=color[ii])
+            tmp_line, = ax.plot(x[ii], data[ii][0], color=color[ii])
             lines.append(tmp_line)
 
             ax.set_xlabel(xlabel[ii])
@@ -2101,6 +2130,8 @@ class Analysis:
             ax.set_title(title[ii])
 
             ax.margins(x=0)
+            if log_plot[ii]:
+                ax.set_yscale('log')
 
             if ylim[ii] is None:
                 # Get the max and min
@@ -2116,11 +2147,7 @@ class Analysis:
 
         def update(frame):
             for ii, line in enumerate(lines):
-                if field[ii].startswith('EDF'):
-                    norm_data = data[ii][frame] / (np.sum(data[ii][frame] * np.diff(x[ii])[0]) * x[ii] ** (0.5))
-                    line.set_ydata(norm_data)
-                else:
-                    line.set_ydata(data[ii][frame])
+                line.set_ydata(data[ii][frame])
             return lines,
 
         # Get the number of frames

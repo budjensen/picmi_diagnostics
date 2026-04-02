@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 import numpy as np
 import sys, os
 
-from pywarpx import fields, particle_containers, picmi
+from pywarpx import fields, particle_containers, picmi, collision_trackers
 from mpi4py import MPI as mpi
 import time
 
@@ -365,6 +365,10 @@ class Diagnostics1D:
         species_controls = {
             'particle': {
                 'species_name': {
+                    'collisional': True, # Need to have collisions named 'coll_species_name' and
+                                         # have collision tracking turned on in the collision class.
+                                         # Returns power transfered into the gas in [W/m^3].
+                                         # Make sure to clear the collision data before first diagnostic collection.
                     'time_averaged': {
                         'N': True,
                         'W': True,
@@ -427,7 +431,7 @@ class Diagnostics1D:
         ieadfs = controls.get('ieadfs', {'z_lo': False, 'z_hi': False})
         eeadfs = controls.get('eeadfs', {'z_lo': False, 'z_hi': False})
         self.tr_power_dict = controls.get('time_resolved_power', {'Pin_vst': False})
-        time_averaged_dict, time_resolved_dict, interval_dict = self._parse_species_controls_dict(controls)
+        time_averaged_dict, time_resolved_dict, interval_dict, collisional_dict = self._parse_species_controls_dict(controls)
 
         # Correct any power dictionary values
         if self.tr_power_dict['Pin_vst']:
@@ -505,7 +509,8 @@ class Diagnostics1D:
             'eeadfs': eeadfs,
             'time_averaged': time_averaged_dict,
             'time_resolved': time_resolved_dict,
-            'interval': interval_dict
+            'interval': interval_dict,
+            'collisional': collisional_dict
         }
 
         # Import boundaries for edfs
@@ -771,6 +776,8 @@ class Diagnostics1D:
             'EzDF_': lambda species: self.calculate_evdf(species, 'z'),
         }
         self.EVDF_PREFIXES = ('ExDF', 'EyDF', 'EzDF')
+
+        self.collision_wrapper = collision_trackers.CollisionBufferWrapper()
 
     def _calculate_N_collections(self):
         '''
@@ -1194,7 +1201,7 @@ class Diagnostics1D:
 
         Returns
         -------
-        tuple of (time_averaged_dict, time_resolved_dict, interval_dict)
+        tuple of (time_averaged_dict, time_resolved_dict, interval_dict, collisional_dict)
             Flat dictionaries matching the legacy format
         '''
         # Extract species from particles dict
@@ -1260,6 +1267,7 @@ class Diagnostics1D:
         time_averaged_dict = {}
         time_resolved_dict = {}
         interval_dict = {}
+        collisional_dict = {}
 
         # Process each species
         for species_name in self.species_names:
@@ -1285,6 +1293,11 @@ class Diagnostics1D:
             for diag in self.PARTICLE_DIAGNOSTIC_PREFIXES:
                 if in_dict.get(diag, False):
                     interval_dict[f'{diag}{suffix}'] = True
+
+            # Process collisional diagnostics
+            coll_dict = species_data.get('collisional', False)
+            if coll_dict:
+                collisional_dict[f'coll_{species_name}'] = True
 
         # Build EDF bins
         self.edf_edges_by_species = {}
@@ -1322,7 +1335,7 @@ class Diagnostics1D:
                 if field_dict.get(field_name, False):
                     target_dict[field_name] = True
 
-        return time_averaged_dict, time_resolved_dict, interval_dict
+        return time_averaged_dict, time_resolved_dict, interval_dict, collisional_dict
 
     def _make_particle_dictionaries(self):
         '''
@@ -2461,6 +2474,10 @@ class Diagnostics1D:
         self.in_EVDF.update({key: np.zeros((len(self.in_slices), len(self.edf_bounds) + 1, len(self.evdf_centers_by_diag_name[key])))
                             for key in self.master_diagnostic_dict['interval'] if key.startswith('EzDF_')})
 
+        # Collision trackers
+        active_coll_trackers = [key for key in self.master_diagnostic_dict['collisional'] if self.master_diagnostic_dict['collisional'][key]]
+        self.collision_wrapper.clear_buffers(active_coll_trackers)
+
     ###########################################################################
     # Saving Functions                                                        #
     ###########################################################################
@@ -2637,6 +2654,15 @@ class Diagnostics1D:
         '''
         Save diagnostic data at the current time step
         '''
+        if any(self.master_diagnostic_dict['collisional'].values()):
+            coll_data = {}
+            active = self.master_diagnostic_dict['collisional']
+            for key in active:
+                if active.get(key, False):
+                    coll_data[key] = self.collision_wrapper.get_all(
+                        key, level=0, copy_to_host=True, energy_units='J'
+                    )
+
         if comm.rank != 0:
             return
 
@@ -2659,10 +2685,30 @@ class Diagnostics1D:
         in_folder = os.path.join(self.diag_folder, f'interval_{step:04d}')
         if any(self.master_diagnostic_dict['time_resolved'].values()) and not os.path.exists(tr_folder):
             os.makedirs(tr_folder)
-        if any(self.master_diagnostic_dict['time_averaged'].values()) and not os.path.exists(ta_folder):
+        if (any(self.master_diagnostic_dict['time_averaged'].values()) or any(self.master_diagnostic_dict['collisional'].values())) and not os.path.exists(ta_folder):
             os.makedirs(ta_folder)
         if any(self.master_diagnostic_dict['interval'].values()) and not os.path.exists(in_folder):
             os.makedirs(in_folder)
+
+        # Save collision trackers
+        active = self.master_diagnostic_dict['collisional']
+        if any(active.values()):
+            coll_collection_time = self._get_collision_accumulation_time(self.curr_diag_output)
+        for key in active:
+            if active.get(key, False):
+                if coll_data[key] is None:
+                    print(f"Warning: No collision data available for {key} at step {step}. Skipping saving for this diagnostic.")
+                    continue
+                for process_name in coll_data[key]:
+                    species = '_'.join(key.split('_')[1:])
+
+                    filename = os.path.join(ta_folder, f'coll-rate_{species}_{process_name}.npy')
+                    rate = coll_data[key][process_name][0] / coll_collection_time / self.dz
+                    np.save(filename, rate)
+
+                    filename = os.path.join(ta_folder, f'coll-energy_{species}_{process_name}.npy')
+                    en_rate = coll_data[key][process_name][1] / coll_collection_time / self.dz
+                    np.save(filename, en_rate)
 
         # Save ieadfs
         active = self.master_diagnostic_dict['ieadfs']
@@ -2831,3 +2877,24 @@ class Diagnostics1D:
             file_name_split[-2] += '_old'
             old_file_name = '.'.join(file_name_split)
             os.rename(file_name, old_file_name)
+
+    def _get_collision_accumulation_time(self, diag_output: int) -> float:
+        '''
+        Get the total time over which collisions were accumulated for a given
+        diagnostic output. Collisions are cleared at the beginning of the first
+        collection and at the end of each diagnostic output.
+
+        Parameters
+        ----------
+        diag_output: int
+            Index of the diagnostic output.
+
+        Returns
+        -------
+        float
+            Total time [s] over which collisions were collected for
+            the given diagnostic output
+        '''
+        if diag_output == 0:
+            return self.diag_time + self.dt
+        return self.diag_time + self.evolve_time
