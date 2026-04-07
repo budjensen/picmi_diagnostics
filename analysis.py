@@ -1186,91 +1186,9 @@ class Analysis:
         ax : matplotlib.axes.Axes
             The axes object
         '''
-        if not self.in_bool:
-            raise ValueError('Interval data not found')
-        if not hasattr(self, 'avg_in_data'):
-            self.avg_intervals(field)
-        if field not in self.avg_in_data:
-            self.avg_intervals(field)
-
-        return_fig = False
-        if ax is None:
-            fig, ax = plt.subplots(1,1, dpi=dpi)
-            return_fig = True
-
-        edf_type = None
-        if field.startswith(('EDF', 'ExDF', 'EyDF', 'EzDF')):
-            edf_type = f"{'_'.join(field.split('_')[:-1])}"
-
-        # Make avg line
-        avg_plot_type = None
-        if plot_time_avg:
-            # Prefer time-averaged data, then time-resolved, then interval-averaged
-            if getattr(self, 'ta_bool', False):
-                try:
-                    if not hasattr(self, 'avg_ta_data') or field not in self.avg_ta_data:
-                        self.avg_time_averaged(field)
-                    if field in self.avg_ta_data:
-                        avg_plot_type = 'time averaged'
-                except ValueError:
-                    # fall through to next option
-                    avg_plot_type = None
-
-            if avg_plot_type is None and getattr(self, 'tr_bool', False):
-                try:
-                    if not hasattr(self, 'avg_tr_data') or field not in self.avg_tr_data:
-                        self.avg_time_resolved(field)
-                    if field in self.avg_tr_data:
-                        avg_plot_type = 'time resolved'
-                except ValueError:
-                    avg_plot_type = None
-
-            if avg_plot_type is None and getattr(self, 'in_bool', False):
-                try:
-                    if not hasattr(self, 'avg_time_avg_in_data') or field not in self.avg_time_avg_in_data:
-                        self.avg_intervals_over_time(field)
-                    if field in self.avg_time_avg_in_data:
-                        avg_plot_type = 'interval time averaged'
-                except ValueError:
-                    avg_plot_type = None
-
-            if avg_plot_type is None:
-                print(f"Warning: Could not plot time averaged line for {field}. No time averaged data can be constructed.")
-
-        # Get x-axis data
-        x, xlabel = self._get_x_data_and_label(x_length=len(self.avg_in_data[field][0]), field=field, edf_type=edf_type)
-
-        if interval is None:
-            num = len(self.in_times)
-            for ii in range(num):
-                ax.plot(x, self.avg_in_data[field][ii],
-                        label = f't={self.in_times[ii]:.3f}*T',
-                        color = self._color_chooser(ii, num, cmap = cmap))
-            ax.set_title(f'{field} intervals')
-
-            # Plot avg line
-            if plot_time_avg and avg_plot_type is not None:
-                if avg_plot_type == 'time averaged':
-                    ax.plot(x, self.avg_ta_data[field], label = 'Average', color = 'black')
-                elif avg_plot_type == 'time resolved':
-                    ax.plot(x, self.avg_tr_data[field], label = 'Average', color = 'black')
-                elif avg_plot_type == 'interval time averaged':
-                    ax.plot(x, self.avg_time_avg_in_data[field], label = 'Average', color = 'black')
-            ax.legend(loc = [1.01,0], fontsize = 'small')
-
-        else:
-            ax.plot(x, self.avg_in_data[field][interval],
-                    label = f't={self.in_times[interval]:.3f}*T',
-                    color = self._color_chooser(interval, len(self.in_times), cmap = cmap))
-            ax.set_title(f'{field} at t = {self.in_times[interval]:.3f}*T')
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(f'{field}')
-        ax.margins(x=0)
-
-        if return_fig:
-            return fig, ax
-        else:
-            return ax
+        return self.plot_phase_resolved(
+            field=field, interval=interval, plot_time_avg=plot_time_avg,
+            ax=ax, dpi=dpi, cmap=cmap)
 
     def load_time_resolved(self, field: str = None):
         '''
@@ -1530,56 +1448,25 @@ class Analysis:
         ax : matplotlib.axes.Axes
             The axes object
         '''
-        if not self.tr_bool:
-            raise ValueError('Time resolved data not found')
-        if not hasattr(self, 'avg_tr_collection_data'):
-            self.avg_time_resolved_collections(field)
-        if field not in self.avg_tr_collection_data:
-            self.avg_time_resolved_collections(field)
-
-        return_fig = False
-        if ax is None:
-            fig, ax = plt.subplots(1,1, dpi=dpi)
-            return_fig = True
-
-        edf_type = None
-        if field.startswith(('EDF', 'ExDF', 'EyDF', 'EzDF')):
-            edf_type = f"{'_'.join(field.split('_')[:-1])}"
-
-        # Make avg line
-        if not hasattr(self, 'avg_tr_data'):
-            self.avg_time_resolved(field)
-        if field not in self.avg_tr_data:
-            self.avg_time_resolved(field)
-
-        # Get x-axis data
-        x, xlabel = self._get_x_data_and_label(x_length=len(self.avg_tr_data[field]), field=field, edf_type=edf_type)
-
         if collection is None:
-            # Plot lines from each collection
-            num = len(self.avg_tr_collection_data[field])
-            for coll in self.avg_tr_collection_data[field]:
-                ax.plot(x, self.avg_tr_collection_data[field][coll],
-                        label = f't={self.tr_times[coll][len(self.tr_times[coll]) // 2]:.4e}',
-                        color = self._color_chooser(coll, num, cmap=cmap))
-
-            # Plot avg line
-            ax.plot(x, self.avg_tr_data[field], label = 'Average', color = 'black')
-
-        else:
-            ax.plot(x, self.avg_tr_collection_data[field][collection],
-                    label = f't={self.tr_times[collection][len(self.tr_times[collection]) // 2]:.4e}')
-
+            return self.plot(field=field, source='tr', show_collections=True,
+                             ax=ax, dpi=dpi, cmap=cmap)
+        # Single specific collection: ensure data is ready then plot one line
+        self._ensure_averaged(field, 'tr')
+        edf_type = '_'.join(field.split('_')[:-1]) if field.startswith(('EDF', 'ExDF', 'EyDF', 'EzDF')) else None
+        return_fig = ax is None
+        if return_fig:
+            fig, ax = plt.subplots(1, 1, dpi=dpi)
+        x, xlabel = self._get_x_data_and_label(
+            len(self.avg_tr_collection_data[field][collection]), field, edf_type)
+        mid = len(self.tr_times[collection]) // 2
+        ax.plot(x, self.avg_tr_collection_data[field][collection],
+                label=f't={self.tr_times[collection][mid]:.4e}')
         ax.set_xlabel(xlabel)
-        ax.set_ylabel(f'{field}')
+        ax.set_ylabel(self._get_ylabel(field))
         ax.set_title(f'Time averaged {field}')
         ax.margins(x=0)
-        ax.legend(loc = [1.01,0], fontsize = 'small')
-
-        if return_fig:
-            return fig, ax
-        else:
-            return ax
+        return (fig, ax) if return_fig else ax
 
     def plot_avg_time_resolved(self, field: str, ax = None, dpi=150):
         '''
@@ -1601,37 +1488,8 @@ class Analysis:
         ax : matplotlib.axes.Axes
             The axes object
         '''
-        if not self.tr_bool:
-            raise ValueError('Time resolved data not found')
-
-        return_fig = False
-        if ax is None:
-            fig, ax = plt.subplots(1,1, dpi=dpi)
-            return_fig = True
-
-        edf_type = None
-        if field.startswith(('EDF', 'ExDF', 'EyDF', 'EzDF')):
-            edf_type = f"{'_'.join(field.split('_')[:-1])}"
-
-        # Make avg line
-        if not hasattr(self, 'avg_tr_data'):
-            self.avg_time_resolved(field)
-        if field not in self.avg_tr_data:
-            self.avg_time_resolved(field)
-
-        # Get x-axis data
-        x, xlabel = self._get_x_data_and_label(x_length=len(self.avg_tr_data[field]), field=field, edf_type=edf_type)
-
-        ax.plot(x, self.avg_tr_data[field], label='Average', color = 'black')
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(f'{field}')
-        ax.set_title(f'Time averaged {field}')
-        ax.margins(x=0)
-
-        if return_fig:
-            return fig, ax
-        else:
-            return ax
+        return self.plot(field=field, source='tr', show_collections=False,
+                         ax=ax, dpi=dpi)
 
     def animate_time_resolved(self,
                               field: str,
@@ -2529,93 +2387,11 @@ class Analysis:
         ax : matplotlib.axes.Axes
             The axes object
         '''
-        if not self.in_bool:
-            raise ValueError('Interval data not found')
-        if field not in self.in_fields:
-            raise ValueError(f'Field must be one of: {", ".join(self.in_fields)}')
         if edf_log_plot and not field.startswith(('EDF', 'ExDF', 'EyDF', 'EzDF')):
             raise ValueError('Field must be an EDF')
-        # Make average data by collection, if requested
-        if plot_all_coll:
-            if not hasattr(self, 'time_avg_in_data'):
-                self.avg_intervals_by_collection_over_time(field)
-            if field not in self.time_avg_in_data:
-                self.avg_intervals_by_collection_over_time(field)
-        # Make average data
-        if not hasattr(self, 'avg_time_avg_in_data'):
-            self.avg_intervals_over_time(field)
-        if field not in self.avg_time_avg_in_data:
-            self.avg_intervals_over_time(field)
-
-        edf_type = None
-        if field.startswith(('EDF', 'ExDF', 'EyDF', 'EzDF')):
-            edf_type = f"{'_'.join(field.split('_')[:-1])}"
-
-        return_fig = False
-        if ax is None:
-            fig, ax = plt.subplots(1,1, dpi=dpi)
-            return_fig = True
-
-        # Get x-axis data
-        x, xlabel = self._get_x_data_and_label(x_length=len(self.avg_time_avg_in_data[field]), field=field, edf_type=edf_type)
-
-        if plot_all_coll:
-            num = len(self.time_avg_in_data[field])
-            for coll in self.time_avg_in_data[field]:
-                data = self.time_avg_in_data[field][coll]
-                if edf_log_plot:
-                    data /= np.abs(x)**0.5
-                ax.plot(x, self.time_avg_in_data[field][coll],
-                        label = f'Collection {coll}',
-                        alpha = 0.4,
-                        color = self._color_chooser(coll, num, cmap=cmap))
-
-        if not return_fig and not plot_all_coll:
-            # Determine a unique linestyle
-            num_lines = len([line for line in ax.lines if line.get_label().startswith('Average')])
-            styles = ['solid', 'dotted', 'dashdot', 'dashed']
-            avg_linestyle = styles[num_lines % len(styles)]
-
-            avg_label = f'Average ({num_lines + 1})'
-            add_legend = True
-
-            # Rename the first line to 'Average (1)', if needed
-            for line in ax.lines:
-                if custom_avg_label is not None and line.get_label() == 'Average':
-                    line.set_label('Average (1)')
-                    break
-        else:
-            avg_linestyle = 'solid'
-            avg_label = 'Average'
-            add_legend = False
-
-        if custom_avg_label is not None:
-            avg_label = custom_avg_label
-
-        if custom_avg_color is not None:
-            avg_color = custom_avg_color
-        else:
-            avg_color = 'black'
-
-        if edf_log_plot:
-            ax.plot(x, self.avg_time_avg_in_data[field] / np.abs(x)**0.5,
-                    label=avg_label, color = avg_color, linewidth=2, linestyle=avg_linestyle)
-        else:
-            ax.plot(x, self.avg_time_avg_in_data[field],
-                    label=avg_label, color = avg_color, linewidth=2, linestyle=avg_linestyle)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(f'{field}')
-        ax.set_title(f'Time averaged {field}')
-        ax.margins(x=0)
-        if plot_all_coll or add_legend:
-            ax.legend(fontsize = 'small')
-        if edf_log_plot:
-            ax.set_yscale('log')
-
-        if return_fig:
-            return fig, ax
-        else:
-            return ax
+        return self.plot(field=field, source='in', show_collections=plot_all_coll,
+                         log_scale=edf_log_plot, custom_label=custom_avg_label,
+                         custom_color=custom_avg_color, ax=ax, dpi=dpi, cmap=cmap)
 
     def plot_time_averaged(self,
                            field: str,
@@ -2652,96 +2428,11 @@ class Analysis:
         ax : matplotlib.axes.Axes
             The axes object
         '''
-        if not self.ta_bool:
-            raise ValueError('Time averaged data not found')
-        if field not in self.ta_fields:
-            raise ValueError(f'Field must be one of: {", ".join(self.ta_fields)}')
         if edf_log_plot and not field.startswith(('EDF', 'ExDF', 'EyDF', 'EzDF')):
             raise ValueError('Field must be an EDF')
-        # Check if the field has been loaded. If it unloaded, the list will be empty
-        if any([len(self.ta_data[field][key]) == 0 for key in self.ta_data[field]]):
-            self.load_time_averaged(field)
-
-        edf_type = None
-        if field.startswith(('EDF', 'ExDF', 'EyDF', 'EzDF')):
-            edf_type = f"{'_'.join(field.split('_')[:-1])}"
-            diag_type = edf_type.split('_')[0]
-        elif field.startswith(('P_I', 'P_C', 'J_d', 'E_z')):
-            diag_type = '_'.join(field.split('_')[:2])
-        else:
-            diag_type = field.split('_')[0]
-
-        return_fig = False
-        if ax is None:
-            fig, ax = plt.subplots(1,1, dpi=dpi)
-            return_fig = True
-
-        # Make avg line
-        if not hasattr(self, 'avg_ta_data'):
-            self.avg_time_averaged(field)
-        if field not in self.avg_ta_data:
-            self.avg_time_averaged(field)
-
-        # Get x-axis data
-        x, xlabel = self._get_x_data_and_label(x_length=len(self.avg_ta_data[field]), field=field, edf_type=edf_type)
-
-        if plot_all_coll:
-            num = len(self.ta_data[field])
-            for coll in self.ta_data[field]:
-                data = self.ta_data[field][coll]
-                if edf_log_plot:
-                    data /= np.abs(x)**0.5
-                ax.plot(x, self.ta_data[field][coll],
-                        label = f'Collection {coll}',
-                        alpha = 0.4,
-                        color = self._color_chooser(coll, num, cmap=cmap))
-
-        if not return_fig and not plot_all_coll:
-            # Determine a unique linestyle
-            num_lines = len([line for line in ax.lines if line.get_label().startswith('Average')])
-            styles = ['solid', 'dotted', 'dashdot', 'dashed']
-            avg_linestyle = styles[num_lines % len(styles)]
-
-            avg_label = f'Average ({num_lines + 1})'
-            add_legend = True
-
-            # Rename the first line to 'Average (1)', if needed
-            for line in ax.lines:
-                if custom_avg_label is not None and line.get_label() == 'Average':
-                    line.set_label('Average (1)')
-                    break
-        else:
-            avg_linestyle = 'solid'
-            avg_label = 'Average'
-            add_legend = False
-
-        if custom_avg_label is not None:
-            avg_label = custom_avg_label
-
-        if custom_avg_color is not None:
-            avg_color = custom_avg_color
-        else:
-            avg_color = 'black'
-
-        if edf_log_plot:
-            ax.plot(x, self.avg_ta_data[field] / np.abs(x)**0.5,
-                    label=avg_label, color = avg_color, linewidth=2, linestyle=avg_linestyle)
-        else:
-            ax.plot(x, self.avg_ta_data[field],
-                    label=avg_label, color = avg_color, linewidth=2, linestyle=avg_linestyle)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(self.ylabel_dict.get(diag_type, field))
-        ax.set_title(f'Time averaged {field}')
-        ax.margins(x=0)
-        if plot_all_coll or add_legend:
-            ax.legend(fontsize = 'small')
-        if edf_log_plot:
-            ax.set_yscale('log')
-
-        if return_fig:
-            return fig, ax
-        else:
-            return ax
+        return self.plot(field=field, source='ta', show_collections=plot_all_coll,
+                         log_scale=edf_log_plot, custom_label=custom_avg_label,
+                         custom_color=custom_avg_color, ax=ax, dpi=dpi, cmap=cmap)
 
     def plot_time_averaged_distributions(self,
                                          species: str,
@@ -2831,6 +2522,237 @@ class Analysis:
         if not return_fig:
             return ax
         return fig, ax
+
+    def plot(self,
+             field: str,
+             source: str = None,
+             show_collections: bool = True,
+             normalize: bool = False,
+             log_scale: bool = False,
+             custom_label: str = None,
+             custom_color: str = None,
+             ax = None,
+             dpi: int = 150,
+             cmap: str = 'GnBu'):
+        '''
+        Plot collection-averaged field data from any data source.
+
+        This unified method replaces plot_time_averaged, plot_avg_time_resolved,
+        and plot_intervals_time_averaged. The source is auto-detected by default
+        (preferring ta > tr > in) but can be specified explicitly.
+
+        Parameters
+        ----------
+        field : str
+            The field to plot.
+        source : str, default=None
+            Data source: 'ta' (time-averaged), 'tr' (time-resolved), or 'in'
+            (interval). If None, auto-detects with priority ta > tr > in.
+        show_collections : bool, default=True
+            Overlay per-collection background lines to show convergence.
+            For 'ta' and 'in' sources: each diagnostic collection is one line.
+            For 'tr' source: each line is the time-average of one collection.
+        normalize : bool, default=False
+            Normalize EDF data so the integral over energy equals 1.
+        log_scale : bool, default=False
+            Use a log y-axis. For EDF fields this also applies the Druyvesteyn
+            transform (divides by sqrt(energy)) before plotting.
+        custom_label : str, default=None
+            Override the average-line label. Useful when overlaying multiple
+            datasets on the same axes.
+        custom_color : str, default=None
+            Override the average-line color (default black).
+        ax : matplotlib.axes.Axes, default=None
+            Axes to plot on. If None, a new figure and axes are created and
+            (fig, ax) is returned. If provided, only ax is returned.
+        dpi : int, default=150
+            DPI for new figures.
+        cmap : str, default='GnBu'
+            Colormap for collection background lines.
+
+        Returns
+        -------
+        (fig, ax) if ax was None, else ax.
+        '''
+        if source is None:
+            source = self._auto_detect_source(field)
+        self._ensure_averaged(field, source)
+
+        edf_type = None
+        if field.startswith(('EDF', 'ExDF', 'EyDF', 'EzDF')):
+            edf_type = '_'.join(field.split('_')[:-1])
+
+        return_fig = ax is None
+        if return_fig:
+            fig, ax = plt.subplots(1, 1, dpi=dpi)
+
+        # Select the fully-averaged data array and x-axis
+        if source == 'ta':
+            avg_data = self.avg_ta_data[field]
+        elif source == 'tr':
+            avg_data = self.avg_tr_data[field]
+        else:
+            avg_data = self.avg_time_avg_in_data[field]
+
+        x, xlabel = self._get_x_data_and_label(len(avg_data), field, edf_type)
+
+        def _apply_transforms(data):
+            data = data.copy()
+            if normalize:
+                data = self._normalize_edf(data, np.diff(x)[0])
+            if log_scale:
+                data = data / np.abs(x) ** 0.5
+            return data
+
+        # Background per-collection lines
+        if show_collections:
+            if source == 'ta':
+                coll_data = self.ta_data[field]
+            elif source == 'tr':
+                coll_data = self.avg_tr_collection_data[field]
+            else:
+                coll_data = self.time_avg_in_data[field]
+            num = len(coll_data)
+            for coll in coll_data:
+                ax.plot(x, _apply_transforms(coll_data[coll]),
+                        label=f'Collection {coll}', alpha=0.4,
+                        color=self._color_chooser(coll, num, cmap=cmap))
+
+        # Average line — cycle linestyle when called multiple times on the same axes
+        add_legend = False
+        if not return_fig and not show_collections:
+            num_avg = len([l for l in ax.lines if l.get_label().startswith('Average')])
+            styles = ['solid', 'dotted', 'dashdot', 'dashed']
+            avg_linestyle = styles[num_avg % len(styles)]
+            avg_label = f'Average ({num_avg + 1})'
+            add_legend = True
+            for line in ax.lines:
+                if custom_label is None and line.get_label() == 'Average':
+                    line.set_label('Average (1)')
+                    break
+        else:
+            avg_linestyle = 'solid'
+            avg_label = 'Average'
+
+        if custom_label is not None:
+            avg_label = custom_label
+        avg_color = custom_color if custom_color is not None else 'black'
+
+        ax.plot(x, _apply_transforms(avg_data),
+                label=avg_label, color=avg_color, linewidth=2, linestyle=avg_linestyle)
+
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(self._get_ylabel(field))
+        ax.set_title(f'Time averaged {field}')
+        ax.margins(x=0)
+        if show_collections or add_legend:
+            ax.legend(fontsize='small')
+        if log_scale:
+            ax.set_yscale('log')
+
+        return (fig, ax) if return_fig else ax
+
+    def plot_phase_resolved(self,
+                            field: str,
+                            interval: int = None,
+                            plot_time_avg: bool = True,
+                            ax = None,
+                            dpi: int = 150,
+                            cmap: str = 'GnBu'):
+        '''
+        Plot phase-resolved interval data, showing the field at each time
+        slice within the RF period.
+
+        Use this instead of plot() with source='in' when you want to see the
+        RF phase structure rather than the convergence across collections.
+
+        Parameters
+        ----------
+        field : str
+            The field to plot.
+        interval : int, default=None
+            Index (0 to len(in_times)-1) of the specific phase slice to plot.
+            If None, all phase slices are plotted on a single axis.
+        plot_time_avg : bool, default=True
+            Overlay a time-averaged line. Prefers ta > tr > interval average.
+        ax : matplotlib.axes.Axes, default=None
+            Axes to plot on. If None, a new figure and axes are created.
+        dpi : int, default=150
+            DPI for new figures.
+        cmap : str, default='GnBu'
+            Colormap for the phase-slice lines.
+
+        Returns
+        -------
+        (fig, ax) if ax was None, else ax.
+        '''
+        if not self.in_bool:
+            raise ValueError('Interval data not found')
+        if field not in self.in_fields:
+            raise ValueError(f'Field must be one of: {", ".join(self.in_fields)}')
+
+        if not hasattr(self, 'avg_in_data') or field not in self.avg_in_data:
+            self.avg_intervals(field)
+
+        return_fig = ax is None
+        if return_fig:
+            fig, ax = plt.subplots(1, 1, dpi=dpi)
+
+        edf_type = None
+        if field.startswith(('EDF', 'ExDF', 'EyDF', 'EzDF')):
+            edf_type = '_'.join(field.split('_')[:-1])
+
+        x, xlabel = self._get_x_data_and_label(
+            len(self.avg_in_data[field][0]), field, edf_type)
+
+        # Resolve the best available time-averaged reference line (ta > tr > in)
+        avg_line = None
+        if plot_time_avg:
+            if getattr(self, 'ta_bool', False):
+                try:
+                    if not hasattr(self, 'avg_ta_data') or field not in self.avg_ta_data:
+                        self.avg_time_averaged(field)
+                    avg_line = self.avg_ta_data.get(field)
+                except ValueError:
+                    pass
+            if avg_line is None and getattr(self, 'tr_bool', False):
+                try:
+                    if not hasattr(self, 'avg_tr_data') or field not in self.avg_tr_data:
+                        self.avg_time_resolved(field)
+                    avg_line = self.avg_tr_data.get(field)
+                except ValueError:
+                    pass
+            if avg_line is None:
+                try:
+                    if not hasattr(self, 'avg_time_avg_in_data') or field not in self.avg_time_avg_in_data:
+                        self.avg_intervals_over_time(field)
+                    avg_line = self.avg_time_avg_in_data.get(field)
+                except ValueError:
+                    pass
+            if avg_line is None:
+                print(f'Warning: no time-averaged data found for {field!r}; skipping avg line.')
+
+        if interval is None:
+            num = len(self.in_times)
+            for ii in range(num):
+                ax.plot(x, self.avg_in_data[field][ii],
+                        label=f't={self.in_times[ii]:.3f}*T',
+                        color=self._color_chooser(ii, num, cmap=cmap))
+            if avg_line is not None:
+                ax.plot(x, avg_line, label='Average', color='black')
+            ax.set_title(f'{field} phase-resolved')
+            ax.legend(loc=[1.01, 0], fontsize='small')
+        else:
+            ax.plot(x, self.avg_in_data[field][interval],
+                    label=f't={self.in_times[interval]:.3f}*T',
+                    color=self._color_chooser(interval, len(self.in_times), cmap=cmap))
+            ax.set_title(f'{field} at t = {self.in_times[interval]:.3f}*T')
+
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(self._get_ylabel(field))
+        ax.margins(x=0)
+
+        return (fig, ax) if return_fig else ax
 
     def calculate_time_averaged_rates(self):
         ''''''
@@ -3271,6 +3193,108 @@ class Analysis:
                 print(f"  Max:  {max_rate:.2e} 1/s")
                 print(f"  Min:  {min_rate:.2e} 1/s")
                 print()
+
+    def _auto_detect_source(self, field: str) -> str:
+        '''Auto-detect which data source (ta/tr/in) contains the given field.
+
+        Priority order: time-averaged (ta) > time-resolved (tr) > interval (in),
+        as ta represents the most converged representation when available.
+
+        Parameters
+        ----------
+        field : str
+            The field name to look up.
+
+        Returns
+        -------
+        str
+            One of 'ta', 'tr', or 'in'.
+        '''
+        if self.ta_bool and field in self.ta_fields:
+            return 'ta'
+        if self.tr_bool and field in self.tr_fields:
+            return 'tr'
+        if self.in_bool and field in self.in_fields:
+            return 'in'
+        avail = (f'ta={getattr(self, "ta_fields", [])} '
+                 f'tr={getattr(self, "tr_fields", [])} '
+                 f'in={getattr(self, "in_fields", [])}')
+        raise ValueError(f'Field {field!r} not found in any source. Available: {avail}')
+
+    def _get_ylabel(self, field: str) -> str:
+        '''Return the y-axis label for a field via ylabel_dict.
+
+        Parameters
+        ----------
+        field : str
+            The field name.
+
+        Returns
+        -------
+        str
+            The y-axis label string.
+        '''
+        if field.startswith(('EDF', 'ExDF', 'EyDF', 'EzDF')):
+            diag_type = field.split('_')[0]
+        elif field.startswith(('P_I', 'P_C', 'J_d', 'E_z')):
+            diag_type = '_'.join(field.split('_')[:2])
+        else:
+            diag_type = field.split('_')[0]
+        return self.ylabel_dict.get(diag_type, field)
+
+    def _ensure_averaged(self, field: str, source: str):
+        '''Ensure data for field is loaded and all averages are computed.
+
+        For 'ta': loads raw collection data and computes avg_ta_data.
+        For 'tr': loads raw data, computes avg_tr_data (full average) and
+                  avg_tr_collection_data (per-collection time-average).
+        For 'in': loads raw data, computes avg_time_avg_in_data (time- and
+                  collection-averaged) and time_avg_in_data (per-collection
+                  time-averaged).
+
+        Parameters
+        ----------
+        field : str
+            The field name.
+        source : str
+            One of 'ta', 'tr', or 'in'.
+        '''
+        if source == 'ta':
+            if not self.ta_bool:
+                raise ValueError('Time averaged data not found')
+            if field not in self.ta_fields:
+                raise ValueError(f'Field {field!r} not in time-averaged fields: {self.ta_fields}')
+            if any(len(self.ta_data[field][k]) == 0 for k in self.ta_data[field]):
+                self.load_time_averaged(field)
+            if not hasattr(self, 'avg_ta_data') or field not in self.avg_ta_data:
+                self.avg_time_averaged(field)
+
+        elif source == 'tr':
+            if not self.tr_bool:
+                raise ValueError('Time resolved data not found')
+            if field not in self.tr_fields:
+                raise ValueError(f'Field {field!r} not in time-resolved fields: {self.tr_fields}')
+            if any(len(self.tr_data[field][k]) == 0 for k in self.tr_data[field]):
+                self.load_time_resolved(field)
+            if not hasattr(self, 'avg_tr_data') or field not in self.avg_tr_data:
+                self.avg_time_resolved(field)
+            if not hasattr(self, 'avg_tr_collection_data') or field not in self.avg_tr_collection_data:
+                self.avg_time_resolved_collections(field)
+
+        elif source == 'in':
+            if not self.in_bool:
+                raise ValueError('Interval data not found')
+            if field not in self.in_fields:
+                raise ValueError(f'Field {field!r} not in interval fields: {self.in_fields}')
+            if any(np.array_equal(self.in_data[field][c][0], 0) for c in self.in_data[field]):
+                self.load_intervals(field)
+            if not hasattr(self, 'avg_time_avg_in_data') or field not in self.avg_time_avg_in_data:
+                self.avg_intervals_over_time(field)
+            if not hasattr(self, 'time_avg_in_data') or field not in self.time_avg_in_data:
+                self.avg_intervals_by_collection_over_time(field)
+
+        else:
+            raise ValueError(f'source must be one of "ta", "tr", "in"; got {source!r}')
 
     def _color_chooser(self, idx, num_colors, cmap='GnBu', reverse=False):
         '''
