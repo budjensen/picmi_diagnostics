@@ -3387,7 +3387,7 @@ class Analysis:
         else:
             raise ValueError('Type must be either "capacitive" or "inductive"')
 
-        if field not in self.ta_data:
+        if not hasattr(self, 'avg_ta_data') or field not in self.avg_ta_data:
             try:
                 self.avg_time_averaged(field)
             except Exception as e:
