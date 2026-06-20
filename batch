@@ -34,7 +34,7 @@ if [ $? -eq 0 ]; then
     sleep 2
     TOTAL_TIME=$(grep "TinyProfiler total time" warpx.${SLURM_JOB_ID}.out | awk '{print $7}' | sed 's/e+/E+/g')
     if [ ! -z "$TOTAL_TIME" ]; then
-        TOTAL_TIME_HOURS=$(python -c "print(f'Total simulation time: {float('$TOTAL_TIME')/3600:.2f} hours')")
+        TOTAL_TIME_HOURS=$(python -c "print(f'Total simulation time: {float(\"$TOTAL_TIME\")/3600:.2f} hours')")
         echo "$TOTAL_TIME_HOURS" >> warpx.${SLURM_JOB_ID}.out
     else
         echo "Warning: Could not parse timing information from output" >> warpx.${SLURM_JOB_ID}.out
