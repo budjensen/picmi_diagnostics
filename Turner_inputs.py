@@ -429,12 +429,12 @@ class CapacitiveDischargeExample(object):
         particle_buffer = particle_containers.ParticleBoundaryBufferWrapper()
         particle_buffer.clear_buffer()
 
-        callbacks.installafterstep(self.picmi_diagnostics.do_diagnostics)
+        callbacks.installbeforeEsolve(self.picmi_diagnostics.do_diagnostics)
 
         # Run the simulation until the end
         self.sim.step(self.max_steps - elapsed_steps + self.bonus_steps)
 
-        callbacks.uninstallcallback('afterstep', self.picmi_diagnostics.do_diagnostics)
+        callbacks.uninstallcallback('beforeEsolve', self.picmi_diagnostics.do_diagnostics)
 
 
 ##########################

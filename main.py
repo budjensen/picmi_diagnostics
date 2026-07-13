@@ -313,7 +313,7 @@ class SEE:
 
 class Diagnostics1D:
 
-    PARTICLE_DIAGNOSTIC_PREFIXES = ['N', 'W', 'Jz', 'P_C', 'P_I', 'EDF', 'ExDF', 'EyDF', 'EzDF']
+    PARTICLE_DIAGNOSTIC_PREFIXES = ['N', 'W', 'Wx', 'Wy', 'Wz', 'Jz', 'P_C', 'P_I', 'EDF', 'ExDF', 'EyDF', 'EzDF']
     FIELD_DIAGNOSTICS = ['E_z', 'E_y', 'E_x', 'phi', 'J_d', 'J_w']
 
     def __init__(self,
@@ -601,6 +601,12 @@ class Diagnostics1D:
                      for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('N_')}
         self.tr_W = {key.replace('W_', ''): np.zeros((self.tr_coll[0], self.nz + 1))
                      for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('W_')}
+        self.tr_Wx = {key.replace('Wx_', ''): np.zeros((self.tr_coll[0], self.nz + 1))
+                      for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Wx_')}
+        self.tr_Wy = {key.replace('Wy_', ''): np.zeros((self.tr_coll[0], self.nz + 1))
+                      for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Wy_')}
+        self.tr_Wz = {key.replace('Wz_', ''): np.zeros((self.tr_coll[0], self.nz + 1))
+                      for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Wz_')}
         self.tr_Jz = {key.replace('Jz_', ''): np.zeros((self.tr_coll[0], self.nz + 1))
                       for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Jz_')}
         self.tr_P_C = {key.replace('P_C_', ''): np.zeros((self.tr_coll[0], self.nz))
@@ -640,6 +646,18 @@ class Diagnostics1D:
                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('W_')}
         self.ta_W_collection_mask = {key.replace('W_', ''): np.zeros(self.nz + 1)
                                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('W_')}
+        self.ta_Wx = {key.replace('Wx_', ''): np.zeros(self.nz + 1)
+                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Wx_')}
+        self.ta_Wx_collection_mask = {key.replace('Wx_', ''): np.zeros(self.nz + 1)
+                                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Wx_')}
+        self.ta_Wy = {key.replace('Wy_', ''): np.zeros(self.nz + 1)
+                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Wy_')}
+        self.ta_Wy_collection_mask = {key.replace('Wy_', ''): np.zeros(self.nz + 1)
+                                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Wy_')}
+        self.ta_Wz = {key.replace('Wz_', ''): np.zeros(self.nz + 1)
+                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Wz_')}
+        self.ta_Wz_collection_mask = {key.replace('Wz_', ''): np.zeros(self.nz + 1)
+                                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Wz_')}
         self.ta_Jz = {key.replace('Jz_', ''): np.zeros(self.nz + 1)
                       for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Jz_')}
         self.ta_P_C = {key.replace('P_C_', ''): np.zeros(self.nz)
@@ -674,6 +692,18 @@ class Diagnostics1D:
                      for key in self.master_diagnostic_dict['interval'] if key.startswith('W_')}
         self.in_W_collection_mask = {key.replace('W_', ''): np.zeros((len(self.in_slices), self.nz + 1))
                                      for key in self.master_diagnostic_dict['interval'] if key.startswith('W_')}
+        self.in_Wx = {key.replace('Wx_', ''): np.zeros((len(self.in_slices), self.nz + 1))
+                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Wx_')}
+        self.in_Wx_collection_mask = {key.replace('Wx_', ''): np.zeros((len(self.in_slices), self.nz + 1))
+                                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Wx_')}
+        self.in_Wy = {key.replace('Wy_', ''): np.zeros((len(self.in_slices), self.nz + 1))
+                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Wy_')}
+        self.in_Wy_collection_mask = {key.replace('Wy_', ''): np.zeros((len(self.in_slices), self.nz + 1))
+                                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Wy_')}
+        self.in_Wz = {key.replace('Wz_', ''): np.zeros((len(self.in_slices), self.nz + 1))
+                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Wz_')}
+        self.in_Wz_collection_mask = {key.replace('Wz_', ''): np.zeros((len(self.in_slices), self.nz + 1))
+                                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Wz_')}
         self.in_Jz = {key.replace('Jz_', ''): np.zeros((len(self.in_slices), self.nz + 1))
                       for key in self.master_diagnostic_dict['interval'] if key.startswith('Jz_')}
         self.in_P_C = {key.replace('P_C_', ''): np.zeros((len(self.in_slices), self.nz))
@@ -705,6 +735,12 @@ class Diagnostics1D:
         self.N = {}
         self.W = {}
         self.W_collection_mask = {}
+        self.Wx = {}
+        self.Wx_collection_mask = {}
+        self.Wy = {}
+        self.Wy_collection_mask = {}
+        self.Wz = {}
+        self.Wz_collection_mask = {}
         self.J = {}
         self.J_d = {}
         self.P_C = {}
@@ -720,6 +756,12 @@ class Diagnostics1D:
                         self.N[species] = np.zeros(self.nz + 1)
                     elif diag == 'W':
                         self.W[species] = np.zeros(self.nz + 1)
+                    elif diag == 'Wx':
+                        self.Wx[species] = np.zeros(self.nz + 1)
+                    elif diag == 'Wy':
+                        self.Wy[species] = np.zeros(self.nz + 1)
+                    elif diag == 'Wz':
+                        self.Wz[species] = np.zeros(self.nz + 1)
                     elif diag == 'Jz':
                         self.J[species] = np.zeros(self.nz + 1)
                     elif diag == 'P_C':
@@ -756,7 +798,12 @@ class Diagnostics1D:
         self._Ey_wrapper = fields.EyFPWrapper()
         self._current_Ey_data = np.zeros(self.nz + 1)
 
-        self.VELOCITY_SYNC_PREFIXES = ('Jz_', 'P_C_', 'P_I_', 'W_')
+        self.VELOCITY_SYNC_PREFIXES = ('Jz_', 'W_', 'Wx_', 'Wy_', 'Wz_')
+        # Power prefixes must be computed before velocity synchronization so that
+        # v^{n+1/2} is paired with E^n (both available at beforeEsolve time).
+        # Synchronizing first would push v by +dt/2 using E^n, adding a spurious
+        # O(dt) term to the J·E power estimate.
+        self.POWER_PREFIXES = ('P_C_', 'P_I_')
 
         # Diagnostic updates
         self.FIELD_DISPATCH = {
@@ -770,6 +817,9 @@ class Diagnostics1D:
         self.SPECIES_DISPATCH = {
             'N_': self.update_N,
             'W_': self.update_W,
+            'Wx_': lambda species, d='x': self.update_Wdir(species, d),
+            'Wy_': lambda species, d='y': self.update_Wdir(species, d),
+            'Wz_': lambda species, d='z': self.update_Wdir(species, d),
             'Jz_': self.update_Jz,
             'P_C_': self.update_P_C,
             'P_I_': self.update_P_I,
@@ -1499,6 +1549,55 @@ class Diagnostics1D:
         # Get a truth value for whether the species is in a particular cell
         self.W_collection_mask[species] = (w_data != 0).astype(float)
 
+    def update_Wdir(self, species, direction):
+        '''
+        Return average directional energy [eV] at node points for a species.
+        v2 = u_direction**2, e.g. ux**2 for direction='x'.
+        Needs to be multiplied by mass / (2 * q_e) before being used.
+
+        Parameters
+        ----------
+        species: str
+            Name of species
+        direction: str
+            Velocity component to use: 'x', 'y', or 'z'
+        '''
+        species_wrapper = particle_containers.ParticleContainerWrapper(species)
+
+        try:
+            u = np.concatenate(getattr(species_wrapper, f'get_particle_u{direction}')())
+            w = np.concatenate(species_wrapper.get_particle_weight())
+            z = np.concatenate(species_wrapper.get_particle_z())
+        except ValueError:
+            u = np.array([])
+            w = np.array([])
+            z = np.array([])
+
+        v2 = u**2
+
+        cell_idx = np.floor(z / self.dz).astype(int)
+        frac_pos = (z / self.dz) - cell_idx
+        frac_l = 1 - frac_pos
+        frac_r = frac_pos
+
+        temp_W = np.zeros(self.nz + 1)
+        temp_w = np.zeros(self.nz + 1)
+        np.add.at(temp_W, cell_idx, v2 * w * frac_l)
+        np.add.at(temp_w, cell_idx, w * frac_l)
+        valid_idxs = cell_idx != self.nz
+        np.add.at(temp_W, cell_idx[valid_idxs] + 1, v2[valid_idxs] * w[valid_idxs] * frac_r[valid_idxs])
+        np.add.at(temp_w, cell_idx[valid_idxs] + 1, w[valid_idxs] * frac_r[valid_idxs])
+
+        W_data = np.zeros_like(temp_W)
+        w_data = np.zeros_like(temp_w)
+        comm.Allreduce(temp_W, W_data, op=mpi.SUM)
+        comm.Allreduce(temp_w, w_data, op=mpi.SUM)
+
+        W_data = np.divide(W_data, w_data, out=np.zeros_like(W_data, dtype=float), where=w_data!=0)
+
+        getattr(self, f'W{direction}')[species] = W_data
+        getattr(self, f'W{direction}_collection_mask')[species] = (w_data != 0).astype(float)
+
     def update_Jz(self, species):
         '''
         Return current density [A/m^2] at cells (this is so that we can
@@ -2161,6 +2260,15 @@ class Diagnostics1D:
                     diags_this_step.add(key)
                     need_synchronization |= key.startswith(self.VELOCITY_SYNC_PREFIXES)
 
+        # Power diagnostics must use v^{n+1/2} paired with E^n (beforeEsolve state).
+        # Run them before velocity synchronization to avoid the +dt/2 bias.
+        for species in self.species_names:
+            for prefix, func in self.SPECIES_DISPATCH.items():
+                if prefix in self.POWER_PREFIXES:
+                    key = f'{prefix}{species}'
+                    if key in diags_this_step:
+                        func(species)
+
         # Synchronize, if necessary, to catch velocities up to positions
         if need_synchronization:
             self.sim_ext.warpx.synchronize_velocity_with_position()
@@ -2170,12 +2278,13 @@ class Diagnostics1D:
             if diag in diags_this_step:
                 func()
 
-        # Call particle diagnostics
+        # Call particle diagnostics (power already computed above)
         for species in self.species_names:
             for prefix, func in self.SPECIES_DISPATCH.items():
-                key = f'{prefix}{species}'
-                if key in diags_this_step:
-                    func(species)
+                if prefix not in self.POWER_PREFIXES:
+                    key = f'{prefix}{species}'
+                    if key in diags_this_step:
+                        func(species)
 
         # Save diagnostics to arrays
         if time_resolved:
@@ -2240,6 +2349,9 @@ class Diagnostics1D:
                 self.tr_N[species][tr_idx] = self.N[species]
             if temp_settings.get(f'W_{species}', False):
                 self.tr_W[species][tr_idx] = self.W[species]
+            for dir in ('x', 'y', 'z'):
+                if temp_settings.get(f'W{dir}_{species}', False):
+                    getattr(self, f'tr_W{dir}')[species][tr_idx] = getattr(self, f'W{dir}')[species]
             if temp_settings.get(f'Jz_{species}', False):
                 self.tr_Jz[species][tr_idx] = self.J[species]
             if temp_settings.get(f'P_C_{species}', False):
@@ -2281,6 +2393,10 @@ class Diagnostics1D:
             if temp_settings.get(f'W_{species}', False):
                 self.ta_W[species] += self.W[species]
                 self.ta_W_collection_mask[species] += self.W_collection_mask[species]
+            for dir in ('x', 'y', 'z'):
+                if temp_settings.get(f'W{dir}_{species}', False):
+                    getattr(self, f'ta_W{dir}')[species] += getattr(self, f'W{dir}')[species]
+                    getattr(self, f'ta_W{dir}_collection_mask')[species] += getattr(self, f'W{dir}_collection_mask')[species]
             if temp_settings.get(f'Jz_{species}', False):
                 self.ta_Jz[species] += self.J[species]
             if temp_settings.get(f'P_C_{species}', False):
@@ -2325,6 +2441,10 @@ class Diagnostics1D:
             if temp_settings.get(f'W_{species}', False):
                 self.in_W[species][interval_idx] += self.W[species]
                 self.in_W_collection_mask[species][interval_idx] += self.W_collection_mask[species]
+            for dir in ('x', 'y', 'z'):
+                if temp_settings.get(f'W{dir}_{species}', False):
+                    getattr(self, f'in_W{dir}')[species][interval_idx] += getattr(self, f'W{dir}')[species]
+                    getattr(self, f'in_W{dir}_collection_mask')[species][interval_idx] += getattr(self, f'W{dir}_collection_mask')[species]
             if temp_settings.get(f'Jz_{species}', False):
                 self.in_Jz[species][interval_idx] += self.J[species]
             if temp_settings.get(f'P_C_{species}', False):
@@ -2374,6 +2494,12 @@ class Diagnostics1D:
                      for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('N_')}
         self.tr_W = {key.replace('W_', ''): np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
                      for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('W_')}
+        self.tr_Wx = {key.replace('Wx_', ''): np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
+                      for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Wx_')}
+        self.tr_Wy = {key.replace('Wy_', ''): np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
+                      for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Wy_')}
+        self.tr_Wz = {key.replace('Wz_', ''): np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
+                      for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Wz_')}
         self.tr_Jz = {key.replace('Jz_', ''): np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
                       for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Jz_')}
         self.tr_P_C = {key.replace('P_C_', ''): np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
@@ -2413,6 +2539,18 @@ class Diagnostics1D:
                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('W_')}
         self.ta_W_collection_mask = {key.replace('W_', ''): np.zeros(self.nz + 1)
                                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('W_')}
+        self.ta_Wx = {key.replace('Wx_', ''): np.zeros(self.nz + 1)
+                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Wx_')}
+        self.ta_Wx_collection_mask = {key.replace('Wx_', ''): np.zeros(self.nz + 1)
+                                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Wx_')}
+        self.ta_Wy = {key.replace('Wy_', ''): np.zeros(self.nz + 1)
+                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Wy_')}
+        self.ta_Wy_collection_mask = {key.replace('Wy_', ''): np.zeros(self.nz + 1)
+                                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Wy_')}
+        self.ta_Wz = {key.replace('Wz_', ''): np.zeros(self.nz + 1)
+                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Wz_')}
+        self.ta_Wz_collection_mask = {key.replace('Wz_', ''): np.zeros(self.nz + 1)
+                                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Wz_')}
         self.ta_Jz = {key.replace('Jz_', ''): np.zeros(self.nz + 1)
                       for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Jz_')}
         self.ta_P_C = {key.replace('P_C_', ''): np.zeros(self.nz)
@@ -2447,6 +2585,18 @@ class Diagnostics1D:
                      for key in self.master_diagnostic_dict['interval'] if key.startswith('W_')}
         self.in_W_collection_mask = {key.replace('W_', ''): np.zeros((len(self.in_slices), self.nz + 1))
                                      for key in self.master_diagnostic_dict['interval'] if key.startswith('W_')}
+        self.in_Wx = {key.replace('Wx_', ''): np.zeros((len(self.in_slices), self.nz + 1))
+                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Wx_')}
+        self.in_Wx_collection_mask = {key.replace('Wx_', ''): np.zeros((len(self.in_slices), self.nz + 1))
+                                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Wx_')}
+        self.in_Wy = {key.replace('Wy_', ''): np.zeros((len(self.in_slices), self.nz + 1))
+                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Wy_')}
+        self.in_Wy_collection_mask = {key.replace('Wy_', ''): np.zeros((len(self.in_slices), self.nz + 1))
+                                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Wy_')}
+        self.in_Wz = {key.replace('Wz_', ''): np.zeros((len(self.in_slices), self.nz + 1))
+                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Wz_')}
+        self.in_Wz_collection_mask = {key.replace('Wz_', ''): np.zeros((len(self.in_slices), self.nz + 1))
+                                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Wz_')}
         self.in_Jz = {key.replace('Jz_', ''): np.zeros((len(self.in_slices), self.nz + 1))
                       for key in self.master_diagnostic_dict['interval'] if key.startswith('Jz_')}
         self.in_P_C = {key.replace('P_C_', ''): np.zeros((len(self.in_slices), self.nz))
@@ -2502,6 +2652,8 @@ class Diagnostics1D:
                     self.tr_N[species] /= self.dz
                 if prefix == 'W':
                     self.tr_W[species] *= self.mass_by_name[species] / 2.0 / constants.q_e
+                if prefix in ('Wx', 'Wy', 'Wz'):
+                    getattr(self, f'tr_{prefix}')[species] *= self.mass_by_name[species] / 2.0 / constants.q_e
                 if prefix == 'Jz':
                     self.tr_Jz[species] *= self.charge_by_name[species] / self.dz
                 if prefix == 'P_C':
@@ -2544,6 +2696,13 @@ class Diagnostics1D:
                     self.ta_W[species] = np.divide(self.ta_W[species] * v2_factor, self.ta_W_collection_mask[species],
                                                    out=np.zeros_like(self.ta_W[species]),
                                                    where=self.ta_W_collection_mask[species]!=0)
+                if prefix in ('Wx', 'Wy', 'Wz'):
+                    v2_factor = self.mass_by_name[species] / 2.0 / constants.q_e
+                    ta_dict = getattr(self, f'ta_{prefix}')
+                    ta_mask = getattr(self, f'ta_{prefix}_collection_mask')
+                    ta_dict[species] = np.divide(ta_dict[species] * v2_factor, ta_mask[species],
+                                                 out=np.zeros_like(ta_dict[species]),
+                                                 where=ta_mask[species]!=0)
                 if prefix == 'Jz':
                     self.ta_Jz[species] *= self.charge_by_name[species] / self.dz / collections
                 if prefix == 'P_C':
@@ -2601,6 +2760,16 @@ class Diagnostics1D:
                         self.in_W[species][ii] = np.divide(self.in_W[species][ii] * v2_factor, self.in_W_collection_mask[species][ii],
                                                            out=np.zeros_like(self.in_W[species][ii]),
                                                            where=self.in_W_collection_mask[species][ii]!=0)
+                if prefix in ('Wx', 'Wy', 'Wz'):
+                    v2_factor = self.mass_by_name[species] / 2.0 / constants.q_e
+                    in_dict = getattr(self, f'in_{prefix}')
+                    in_mask = getattr(self, f'in_{prefix}_collection_mask')
+                    for ii in range(len(self.in_slices)):
+                        if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
+                            continue
+                        in_dict[species][ii] = np.divide(in_dict[species][ii] * v2_factor, in_mask[species][ii],
+                                                         out=np.zeros_like(in_dict[species][ii]),
+                                                         where=in_mask[species][ii]!=0)
                 if prefix == 'Jz':
                     for ii in range(len(self.in_slices)):
                         if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:

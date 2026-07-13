@@ -117,6 +117,9 @@ class CapacitiveDischargeExample(object):
                 'time_averaged': {
                     'N':   False,
                     'W':   False,
+                    'Wx':  False,
+                    'Wy':  False,
+                    'Wz':  False,
                     'Jz':  False,
                     'P_C': False,
                     'P_I': False,
@@ -128,6 +131,9 @@ class CapacitiveDischargeExample(object):
                 'time_resolved': {
                     'N':   False,
                     'W':   False,
+                    'Wx':  False,
+                    'Wy':  False,
+                    'Wz':  False,
                     'Jz':  False,
                     'P_C': False,
                     'P_I': False,
@@ -136,6 +142,9 @@ class CapacitiveDischargeExample(object):
                 'interval': {
                     'N':   False,
                     'W':   False,
+                    'Wx':  False,
+                    'Wy':  False,
+                    'Wz':  False,
                     'Jz':  False,
                     'P_C': False,
                     'P_I': False,
@@ -158,6 +167,9 @@ class CapacitiveDischargeExample(object):
                 'time_averaged': {
                     'N':   False,
                     'W':   False,
+                    'Wx':  False,
+                    'Wy':  False,
+                    'Wz':  False,
                     'Jz':  False,
                     'P_C': False,
                     'P_I': False,
@@ -166,6 +178,9 @@ class CapacitiveDischargeExample(object):
                 'time_resolved': {
                     'N':   False,
                     'W':   False,
+                    'Wx':  False,
+                    'Wy':  False,
+                    'Wz':  False,
                     'Jz':  False,
                     'P_C': False,
                     'P_I': False,
@@ -174,6 +189,9 @@ class CapacitiveDischargeExample(object):
                 'interval': {
                     'N':   False,
                     'W':   False,
+                    'Wx':  False,
+                    'Wy':  False,
+                    'Wz':  False,
                     'Jz':  False,
                     'P_C': False,
                     'P_I': False,
@@ -595,7 +613,7 @@ class CapacitiveDischargeExample(object):
 
         # Add SEE, if necessary
         if self.flag_SEE:
-            callbacks.installafterstep(self.SEE_routine.do_SEE)
+            callbacks.installbeforeEsolve(self.SEE_routine.do_SEE)
 
         elapsed_steps = 0
         if self.restart_checkpoint:
@@ -622,7 +640,7 @@ class CapacitiveDischargeExample(object):
         self.sim.step(self.max_steps - elapsed_steps + self.bonus_steps)
 
         # Uninstall callbacks
-        callbacks.uninstallcallback('afterstep', self.picmi_diagnostics.do_diagnostics)
+        callbacks.uninstallcallback('beforeEsolve', self.picmi_diagnostics.do_diagnostics)
         if self.flag_SEE:
             callbacks.uninstallcallback('afterstep', self.SEE_routine.do_SEE)
 
