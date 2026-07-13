@@ -4,7 +4,7 @@ import argparse
 import numpy as np
 import sys, os, time, copy
 
-from pywarpx import callbacks, fields, libwarpx, particle_containers, picmi
+from pywarpx import callbacks, fields, libwarpx, particle_containers, picmi, collision_trackers
 from mpi4py import MPI as mpi
 
 from picmi_diagnostics.main import Diagnostics1D
@@ -26,7 +26,7 @@ class CapacitiveDischargeExample(object):
 
     electron_name   = 'electrons'
     ion_name        = 'He'
-    m_ion           = 6.63e-26                          # [kg]
+    m_ion           = 6.67e-27                          # [kg]
     ion_charge      = constants.q_e                     # [C]
 
     zmin            = 0.0                               # m
@@ -143,6 +143,10 @@ class CapacitiveDischargeExample(object):
                 'phi': True,
                 'J_d': True,
             }
+        },
+        'collision': {
+            electron_name: False,
+            ion_name: False,
         },
         'ieadfs': {
             'z_lo': False,
@@ -271,7 +275,9 @@ class CapacitiveDischargeExample(object):
         self.electrons = picmi.Species(
             particle_type='electron', name=self.electron_name,
             charge=-constants.q_e, mass=constants.m_e,
-            initial_distribution=elec_distribution
+            initial_distribution=elec_distribution,
+            warpx_save_particles_at_zhi = True,
+            warpx_save_particles_at_zlo = True,
         )
         self.ions = picmi.Species(
             particle_type='He', name=self.ion_name,
@@ -295,6 +301,7 @@ class CapacitiveDischargeExample(object):
             background_temperature=self.gas_temp,
             background_mass=self.ions.mass,
             ndt=self.mcc_subcycling_steps,
+            enable_collision_tracking=self.diag_control['collision'].get(self.electron_name, False),
             scattering_processes={
                 'elastic' : {
                     'cross_section' : cross_sec_direc+'electron_scattering.dat'
@@ -325,6 +332,7 @@ class CapacitiveDischargeExample(object):
             background_density=self.gas_density,
             background_temperature=self.gas_temp,
             ndt=self.mcc_subcycling_steps,
+            enable_collision_tracking=self.diag_control['collision'].get(self.ion_name, False),
             scattering_processes=ion_scattering_processes
         )
 
@@ -428,6 +436,12 @@ class CapacitiveDischargeExample(object):
         # Set up the particle buffer for diagnostic collection
         particle_buffer = particle_containers.ParticleBoundaryBufferWrapper()
         particle_buffer.clear_buffer()
+
+        # Clear collision tracking wrapper
+        active_coll_names = [name for name, enabled in self.diag_control.get('collision', {}).items() if enabled]
+        if active_coll_names:
+            collision_tracker = collision_trackers.CollisionBufferWrapper()
+            collision_tracker.clear_buffers(active_coll_names, level=0)
 
         callbacks.installbeforeEsolve(self.picmi_diagnostics.do_diagnostics)
 
