@@ -313,7 +313,7 @@ class SEE:
 
 class Diagnostics1D:
 
-    PARTICLE_DIAGNOSTIC_PREFIXES = ['N', 'W', 'Wx', 'Wy', 'Wz', 'Jz', 'P_C', 'P_I', 'EDF', 'ExDF', 'EyDF', 'EzDF']
+    PARTICLE_DIAGNOSTIC_PREFIXES = ['N', 'W', 'Wx', 'Wy', 'Wz', 'Jz', 'Jy', 'Jx', 'P_C', 'P_I', 'EDF', 'ExDF', 'EyDF', 'EzDF']
     FIELD_DIAGNOSTICS = ['E_z', 'E_y', 'E_x', 'phi', 'J_d', 'J_w']
 
     def __init__(self,
@@ -609,6 +609,10 @@ class Diagnostics1D:
                       for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Wz_')}
         self.tr_Jz = {key.replace('Jz_', ''): np.zeros((self.tr_coll[0], self.nz + 1))
                       for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Jz_')}
+        self.tr_Jy = {key.replace('Jy_', ''): np.zeros((self.tr_coll[0], self.nz + 1))
+                      for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Jy_')}
+        self.tr_Jx = {key.replace('Jx_', ''): np.zeros((self.tr_coll[0], self.nz + 1))
+                      for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Jx_')}
         self.tr_P_C = {key.replace('P_C_', ''): np.zeros((self.tr_coll[0], self.nz))
                        for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('P_C_')}
         self.tr_P_I = {key.replace('P_I_', ''): np.zeros((self.tr_coll[0], self.nz))
@@ -660,6 +664,10 @@ class Diagnostics1D:
                                       for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Wz_')}
         self.ta_Jz = {key.replace('Jz_', ''): np.zeros(self.nz + 1)
                       for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Jz_')}
+        self.ta_Jy = {key.replace('Jy_', ''): np.zeros(self.nz + 1)
+                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Jy_')}
+        self.ta_Jx = {key.replace('Jx_', ''): np.zeros(self.nz + 1)
+                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Jx_')}
         self.ta_P_C = {key.replace('P_C_', ''): np.zeros(self.nz)
                        for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('P_C_')}
         self.ta_P_I = {key.replace('P_I_', ''): np.zeros(self.nz)
@@ -706,6 +714,10 @@ class Diagnostics1D:
                                       for key in self.master_diagnostic_dict['interval'] if key.startswith('Wz_')}
         self.in_Jz = {key.replace('Jz_', ''): np.zeros((len(self.in_slices), self.nz + 1))
                       for key in self.master_diagnostic_dict['interval'] if key.startswith('Jz_')}
+        self.in_Jy = {key.replace('Jy_', ''): np.zeros((len(self.in_slices), self.nz + 1))
+                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Jy_')}
+        self.in_Jx = {key.replace('Jx_', ''): np.zeros((len(self.in_slices), self.nz + 1))
+                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Jx_')}
         self.in_P_C = {key.replace('P_C_', ''): np.zeros((len(self.in_slices), self.nz))
                        for key in self.master_diagnostic_dict['interval'] if key.startswith('P_C_')}
         self.in_P_I = {key.replace('P_I_', ''): np.zeros((len(self.in_slices), self.nz))
@@ -741,7 +753,9 @@ class Diagnostics1D:
         self.Wy_collection_mask = {}
         self.Wz = {}
         self.Wz_collection_mask = {}
-        self.J = {}
+        self.Jz = {}
+        self.Jy = {}
+        self.Jx = {}
         self.J_d = {}
         self.P_C = {}
         self.P_I = {}
@@ -763,7 +777,11 @@ class Diagnostics1D:
                     elif diag == 'Wz':
                         self.Wz[species] = np.zeros(self.nz + 1)
                     elif diag == 'Jz':
-                        self.J[species] = np.zeros(self.nz + 1)
+                        self.Jz[species] = np.zeros(self.nz + 1)
+                    elif diag == 'Jy':
+                        self.Jy[species] = np.zeros(self.nz + 1)
+                    elif diag == 'Jx':
+                        self.Jx[species] = np.zeros(self.nz + 1)
                     elif diag == 'P_C':
                         self.P_C[species] = np.zeros(self.nz)
                     elif diag == 'P_I':
@@ -798,7 +816,7 @@ class Diagnostics1D:
         self._Ey_wrapper = fields.EyFPWrapper()
         self._current_Ey_data = np.zeros(self.nz + 1)
 
-        self.VELOCITY_SYNC_PREFIXES = ('Jz_', 'W_', 'Wx_', 'Wy_', 'Wz_')
+        self.VELOCITY_SYNC_PREFIXES = ('Jz_', 'Jy_', 'Jx_', 'W_', 'Wx_', 'Wy_', 'Wz_')
         # Power prefixes must be computed before velocity synchronization so that
         # v^{n+1/2} is paired with E^n (both available at beforeEsolve time).
         # Synchronizing first would push v by +dt/2 using E^n, adding a spurious
@@ -820,7 +838,9 @@ class Diagnostics1D:
             'Wx_': lambda species, d='x': self.update_Wdir(species, d),
             'Wy_': lambda species, d='y': self.update_Wdir(species, d),
             'Wz_': lambda species, d='z': self.update_Wdir(species, d),
-            'Jz_': self.update_Jz,
+            'Jz_': lambda species, d='z': self.update_Jdir(species, d),
+            'Jy_': lambda species, d='y': self.update_Jdir(species, d),
+            'Jx_': lambda species, d='x': self.update_Jdir(species, d),
             'P_C_': self.update_P_C,
             'P_I_': self.update_P_I,
             'EDF_': self.calculate_edf,
@@ -1598,62 +1618,44 @@ class Diagnostics1D:
         getattr(self, f'W{direction}')[species] = W_data
         getattr(self, f'W{direction}_collection_mask')[species] = (w_data != 0).astype(float)
 
-    def update_Jz(self, species):
+    def update_Jdir(self, species, direction):
         '''
-        Return current density [A/m^2] at cells (this is so that we can
-        cleanly do J*E, since E is calculated within cells) for a species.
-        Needs to be multiplied by charge and divided by cell size before
-        being used.
+        Return current density [A/m^2] at node points for a species along
+        the specified direction. Needs to be multiplied by charge and divided
+        by cell size before being used.
 
         Parameters
         ----------
         species: str
             Name of species
+        direction: str
+            Velocity component to use: 'x', 'y', or 'z'
         '''
-        # Set up wrappers
         species_wrapper = particle_containers.ParticleContainerWrapper(species)
 
-        # Get particle velocities
         try:
-            uz = np.concatenate(species_wrapper.get_particle_uz())
+            u = np.concatenate(getattr(species_wrapper, f'get_particle_u{direction}')())
             w = np.concatenate(species_wrapper.get_particle_weight())
             z = np.concatenate(species_wrapper.get_particle_z())
         except ValueError:
-            uz = np.array([])
+            u = np.array([])
             w = np.array([])
             z = np.array([])
 
-        # Get cell index of particle
         cell_idx = np.floor(z / self.dz).astype(int)
-
-        # Calculate the fractional position within the cell
         frac_pos = (z / self.dz) - cell_idx
-
-        # Calculate weights for interpolation
         frac_l = 1 - frac_pos
         frac_r = frac_pos
 
-        # Sort by z and assign uz to nodes
         temp_J = np.zeros(self.nz + 1)
-        np.add.at(temp_J, cell_idx, uz * w * frac_l)
-        # Get a list of all particles which are not at the last node
+        np.add.at(temp_J, cell_idx, u * w * frac_l)
         valid_idxs = cell_idx != self.nz
-        np.add.at(temp_J, cell_idx[valid_idxs] + 1, uz[valid_idxs] * w[valid_idxs] * frac_r[valid_idxs])
+        np.add.at(temp_J, cell_idx[valid_idxs] + 1, u[valid_idxs] * w[valid_idxs] * frac_r[valid_idxs])
 
-        # Future note: If we want to get rid of the dip in data reported at the first and last nodes,
-        #              we can create a mask of particles in the first and last cell and double their
-        #              contributions to the first and last node.
-
-        # Note: We don't need to synchronize if all processes have particles
-        #       that are in the same cells... The next few lines may be worth
-        #       adjusting later on.
-
-        # Send temp_J to all processes
         J_data = np.zeros_like(temp_J)
         comm.Allreduce(temp_J, J_data, op=mpi.SUM)
 
-        # Report the current
-        self.J[species] = J_data
+        getattr(self, f'J{direction}')[species] = J_data
 
     def update_J_w(self):
         '''
@@ -2352,8 +2354,9 @@ class Diagnostics1D:
             for dir in ('x', 'y', 'z'):
                 if temp_settings.get(f'W{dir}_{species}', False):
                     getattr(self, f'tr_W{dir}')[species][tr_idx] = getattr(self, f'W{dir}')[species]
-            if temp_settings.get(f'Jz_{species}', False):
-                self.tr_Jz[species][tr_idx] = self.J[species]
+            for dir in ('z', 'y', 'x'):
+                if temp_settings.get(f'J{dir}_{species}', False):
+                    getattr(self, f'tr_J{dir}')[species][tr_idx] = getattr(self, f'J{dir}')[species]
             if temp_settings.get(f'P_C_{species}', False):
                 self.tr_P_C[species][tr_idx] = self.P_C[species]
             if temp_settings.get(f'P_I_{species}', False):
@@ -2397,8 +2400,9 @@ class Diagnostics1D:
                 if temp_settings.get(f'W{dir}_{species}', False):
                     getattr(self, f'ta_W{dir}')[species] += getattr(self, f'W{dir}')[species]
                     getattr(self, f'ta_W{dir}_collection_mask')[species] += getattr(self, f'W{dir}_collection_mask')[species]
-            if temp_settings.get(f'Jz_{species}', False):
-                self.ta_Jz[species] += self.J[species]
+            for dir in ('z', 'y', 'x'):
+                if temp_settings.get(f'J{dir}_{species}', False):
+                    getattr(self, f'ta_J{dir}')[species] += getattr(self, f'J{dir}')[species]
             if temp_settings.get(f'P_C_{species}', False):
                 self.ta_P_C[species] += self.P_C[species]
             if temp_settings.get(f'P_I_{species}', False):
@@ -2445,8 +2449,9 @@ class Diagnostics1D:
                 if temp_settings.get(f'W{dir}_{species}', False):
                     getattr(self, f'in_W{dir}')[species][interval_idx] += getattr(self, f'W{dir}')[species]
                     getattr(self, f'in_W{dir}_collection_mask')[species][interval_idx] += getattr(self, f'W{dir}_collection_mask')[species]
-            if temp_settings.get(f'Jz_{species}', False):
-                self.in_Jz[species][interval_idx] += self.J[species]
+            for dir in ('z', 'y', 'x'):
+                if temp_settings.get(f'J{dir}_{species}', False):
+                    getattr(self, f'in_J{dir}')[species][interval_idx] += getattr(self, f'J{dir}')[species]
             if temp_settings.get(f'P_C_{species}', False):
                 self.in_P_C[species][interval_idx] += self.P_C[species]
             if temp_settings.get(f'P_I_{species}', False):
@@ -2502,6 +2507,10 @@ class Diagnostics1D:
                       for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Wz_')}
         self.tr_Jz = {key.replace('Jz_', ''): np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
                       for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Jz_')}
+        self.tr_Jy = {key.replace('Jy_', ''): np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
+                      for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Jy_')}
+        self.tr_Jx = {key.replace('Jx_', ''): np.zeros((self.tr_coll[self.curr_diag_output], self.nz + 1))
+                      for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Jx_')}
         self.tr_P_C = {key.replace('P_C_', ''): np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
                        for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('P_C_')}
         self.tr_P_I = {key.replace('P_I_', ''): np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
@@ -2553,6 +2562,10 @@ class Diagnostics1D:
                                       for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Wz_')}
         self.ta_Jz = {key.replace('Jz_', ''): np.zeros(self.nz + 1)
                       for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Jz_')}
+        self.ta_Jy = {key.replace('Jy_', ''): np.zeros(self.nz + 1)
+                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Jy_')}
+        self.ta_Jx = {key.replace('Jx_', ''): np.zeros(self.nz + 1)
+                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Jx_')}
         self.ta_P_C = {key.replace('P_C_', ''): np.zeros(self.nz)
                        for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('P_C_')}
         self.ta_P_I = {key.replace('P_I_', ''): np.zeros(self.nz)
@@ -2599,6 +2612,10 @@ class Diagnostics1D:
                                       for key in self.master_diagnostic_dict['interval'] if key.startswith('Wz_')}
         self.in_Jz = {key.replace('Jz_', ''): np.zeros((len(self.in_slices), self.nz + 1))
                       for key in self.master_diagnostic_dict['interval'] if key.startswith('Jz_')}
+        self.in_Jy = {key.replace('Jy_', ''): np.zeros((len(self.in_slices), self.nz + 1))
+                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Jy_')}
+        self.in_Jx = {key.replace('Jx_', ''): np.zeros((len(self.in_slices), self.nz + 1))
+                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Jx_')}
         self.in_P_C = {key.replace('P_C_', ''): np.zeros((len(self.in_slices), self.nz))
                        for key in self.master_diagnostic_dict['interval'] if key.startswith('P_C_')}
         self.in_P_I = {key.replace('P_I_', ''): np.zeros((len(self.in_slices), self.nz))
@@ -2654,8 +2671,8 @@ class Diagnostics1D:
                     self.tr_W[species] *= self.mass_by_name[species] / 2.0 / constants.q_e
                 if prefix in ('Wx', 'Wy', 'Wz'):
                     getattr(self, f'tr_{prefix}')[species] *= self.mass_by_name[species] / 2.0 / constants.q_e
-                if prefix == 'Jz':
-                    self.tr_Jz[species] *= self.charge_by_name[species] / self.dz
+                if prefix in ('Jz', 'Jy', 'Jx'):
+                    getattr(self, f'tr_{prefix}')[species] *= self.charge_by_name[species] / self.dz
                 if prefix == 'P_C':
                     self.tr_P_C[species] *= self.charge_by_name[species] / self.dz
                 if prefix == 'P_I':
@@ -2703,8 +2720,8 @@ class Diagnostics1D:
                     ta_dict[species] = np.divide(ta_dict[species] * v2_factor, ta_mask[species],
                                                  out=np.zeros_like(ta_dict[species]),
                                                  where=ta_mask[species]!=0)
-                if prefix == 'Jz':
-                    self.ta_Jz[species] *= self.charge_by_name[species] / self.dz / collections
+                if prefix in ('Jz', 'Jy', 'Jx'):
+                    getattr(self, f'ta_{prefix}')[species] *= self.charge_by_name[species] / self.dz / collections
                 if prefix == 'P_C':
                     self.ta_P_C[species] *= self.charge_by_name[species] / self.dz / collections
                 if prefix == 'P_I':
@@ -2770,11 +2787,12 @@ class Diagnostics1D:
                         in_dict[species][ii] = np.divide(in_dict[species][ii] * v2_factor, in_mask[species][ii],
                                                          out=np.zeros_like(in_dict[species][ii]),
                                                          where=in_mask[species][ii]!=0)
-                if prefix == 'Jz':
+                if prefix in ('Jz', 'Jy', 'Jx'):
+                    in_dict = getattr(self, f'in_{prefix}')
                     for ii in range(len(self.in_slices)):
                         if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                             continue
-                        self.in_Jz[species][ii] *= self.charge_by_name[species] / self.dz / collection_counts[ii]
+                        in_dict[species][ii] *= self.charge_by_name[species] / self.dz / collection_counts[ii]
                 if prefix == 'P_C':
                     for ii in range(len(self.in_slices)):
                         if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
