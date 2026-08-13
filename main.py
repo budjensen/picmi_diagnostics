@@ -816,12 +816,7 @@ class Diagnostics1D:
         self._Ey_wrapper = fields.EyFPWrapper()
         self._current_Ey_data = np.zeros(self.nz + 1)
 
-        self.VELOCITY_SYNC_PREFIXES = ('Jz_', 'Jy_', 'Jx_', 'W_', 'Wx_', 'Wy_', 'Wz_')
-        # Power prefixes must be computed before velocity synchronization so that
-        # v^{n+1/2} is paired with E^n (both available at beforeEsolve time).
-        # Synchronizing first would push v by +dt/2 using E^n, adding a spurious
-        # O(dt) term to the J·E power estimate.
-        self.POWER_PREFIXES = ('P_C_', 'P_I_')
+        self.VELOCITY_SYNC_PREFIXES = ('Jz_', 'Jy_', 'Jx_', 'P_C_', 'P_I_', 'W_', 'Wx_', 'Wy_', 'Wz_')
 
         # Diagnostic updates
         self.FIELD_DISPATCH = {
@@ -2262,15 +2257,6 @@ class Diagnostics1D:
                     diags_this_step.add(key)
                     need_synchronization |= key.startswith(self.VELOCITY_SYNC_PREFIXES)
 
-        # Power diagnostics must use v^{n+1/2} paired with E^n (beforeEsolve state).
-        # Run them before velocity synchronization to avoid the +dt/2 bias.
-        for species in self.species_names:
-            for prefix, func in self.SPECIES_DISPATCH.items():
-                if prefix in self.POWER_PREFIXES:
-                    key = f'{prefix}{species}'
-                    if key in diags_this_step:
-                        func(species)
-
         # Synchronize, if necessary, to catch velocities up to positions
         if need_synchronization:
             self.sim_ext.warpx.synchronize_velocity_with_position()
@@ -2280,13 +2266,12 @@ class Diagnostics1D:
             if diag in diags_this_step:
                 func()
 
-        # Call particle diagnostics (power already computed above)
+        # Call particle diagnostics
         for species in self.species_names:
             for prefix, func in self.SPECIES_DISPATCH.items():
-                if prefix not in self.POWER_PREFIXES:
-                    key = f'{prefix}{species}'
-                    if key in diags_this_step:
-                        func(species)
+                key = f'{prefix}{species}'
+                if key in diags_this_step:
+                    func(species)
 
         # Save diagnostics to arrays
         if time_resolved:
