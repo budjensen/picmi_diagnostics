@@ -58,6 +58,7 @@ class SEE:
         self.SEE_probability = SEE_probability
         self.SEE_spec_names  = SEE_spec_names
         self.SEE_velocity    = np.sqrt(2 * SEE_energy * constants.q_e / constants.m_e)
+        self.SEE_energy_J    = SEE_energy * constants.q_e  # Kinetic energy of each emitted secondary electron, in Joules
         self.electron_species_name = electron_species_name
 
         if self.SEE_probability < 0:
@@ -313,7 +314,7 @@ class SEE:
 
 class Diagnostics1D:
 
-    PARTICLE_DIAGNOSTIC_PREFIXES = ['N', 'W', 'Wx', 'Wy', 'Wz', 'Jz', 'Jy', 'Jx', 'P_C', 'P_I', 'EDF', 'ExDF', 'EyDF', 'EzDF']
+    PARTICLE_DIAGNOSTIC_PREFIXES = ['N', 'W', 'Wx', 'Wy', 'Wz', 'Jz', 'Jy', 'Jx', 'P_C', 'P_I', 'Pw', 'EDF', 'ExDF', 'EyDF', 'EzDF']
     FIELD_DIAGNOSTICS = ['E_z', 'E_y', 'E_x', 'phi', 'J_d', 'J_w']
 
     def __init__(self,
@@ -371,6 +372,7 @@ class Diagnostics1D:
                         'Jz': True,
                         'P_C': True,
                         'P_I': True,
+                        'Pw': True, # Power deposited to the walls by this species [W/m^2]
                         'EDF': True,
                         'ExDF': True,
                         'EyDF': True,
@@ -617,6 +619,8 @@ class Diagnostics1D:
                        for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('P_C_')}
         self.tr_P_I = {key.replace('P_I_', ''): np.zeros((self.tr_coll[0], self.nz))
                        for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('P_I_')}
+        self.tr_Pw = {key.replace('Pw_', ''): np.zeros((self.tr_coll[0], 2))
+                      for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Pw_')}
 
         # Field diagnostics
         self.tr_E = {
@@ -672,6 +676,8 @@ class Diagnostics1D:
                        for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('P_C_')}
         self.ta_P_I = {key.replace('P_I_', ''): np.zeros(self.nz)
                        for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('P_I_')}
+        self.ta_Pw = {key.replace('Pw_', ''): np.zeros(2)
+                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Pw_')}
 
         # Field diagnostics
         self.ta_E = {
@@ -722,6 +728,8 @@ class Diagnostics1D:
                        for key in self.master_diagnostic_dict['interval'] if key.startswith('P_C_')}
         self.in_P_I = {key.replace('P_I_', ''): np.zeros((len(self.in_slices), self.nz))
                        for key in self.master_diagnostic_dict['interval'] if key.startswith('P_I_')}
+        self.in_Pw = {key.replace('Pw_', ''): np.zeros((len(self.in_slices), 2))
+                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Pw_')}
 
         # Field diagnostics
         self.in_E = {
@@ -759,6 +767,7 @@ class Diagnostics1D:
         self.J_d = {}
         self.P_C = {}
         self.P_I = {}
+        self.Pw = {}
         self.Edf = {}
         self.Exdf = {}
         self.Eydf = {}
@@ -786,6 +795,8 @@ class Diagnostics1D:
                         self.P_C[species] = np.zeros(self.nz)
                     elif diag == 'P_I':
                         self.P_I[species] = np.zeros(self.nz)
+                    elif diag == 'Pw':
+                        self.Pw[species] = np.zeros(2)
                     elif diag == 'EDF':
                         self.Edf[species] = np.zeros((len(self.edf_bounds) + 1, len(self.edf_centers_by_species[species])))
                     elif diag == 'ExDF':
@@ -838,6 +849,7 @@ class Diagnostics1D:
             'Jx_': lambda species, d='x': self.update_Jdir(species, d),
             'P_C_': self.update_P_C,
             'P_I_': self.update_P_I,
+            'Pw_': self.update_Pw,
             'EDF_': self.calculate_edf,
             'ExDF_': lambda species: self.calculate_evdf(species, 'x'),
             'EyDF_': lambda species: self.calculate_evdf(species, 'y'),
@@ -1661,24 +1673,25 @@ class Diagnostics1D:
         buffer = particle_containers.ParticleBoundaryBufferWrapper()
         lev = 0
 
-        # Initialize arrays for each boundary
-        J_w_lo = np.zeros(1, dtype=int)
-        J_w_hi = np.zeros(1, dtype=int)
+        # Initialize arrays for each boundary (float, since particle weights
+        # are not generally integers)
+        J_w_lo = np.zeros(1)
+        J_w_hi = np.zeros(1)
 
         # Process z_lo boundary (only on rank 0)
         if comm.rank == 0:
-            for i, species in enumerate(self.species_names):
+            for species in self.species_names:
                 try:
                     w = np.concatenate(buffer.get_particle_scraped_this_step(species, 'z_lo', "w", lev))
-                    count = 0 if len(w) == 0 else len(w) * w[0] # Assume all weights are the same
+                    count = np.sum(w)
                 except ValueError:
                     count = 0
 
+                # Charge number of the species (e.g. -1 for electrons, +1 for singly charged ions)
+                charge_number = self.charge_by_name[species] / constants.q_e
+
                 # For z_lo, boundary_factor = -1
-                if i == 0:  # Electrons
-                    J_w_lo[0] += count  # -= count * (-1)
-                else:       # Ions
-                    J_w_lo[0] -= count  # += count * (-1)
+                J_w_lo[0] -= charge_number * count
 
             # Add SEE contribution
             if self.SEE_obj is not None:
@@ -1686,18 +1699,18 @@ class Diagnostics1D:
 
         # Process z_hi boundary (only on rank num_proc - 1)
         if comm.rank == num_proc - 1:
-            for i, species in enumerate(self.species_names):
+            for species in self.species_names:
                 try:
                     w = np.concatenate(buffer.get_particle_scraped_this_step(species, 'z_hi', "w", lev))
-                    count = 0 if len(w) == 0 else len(w) * w[0] # Assume all weights are the same
+                    count = np.sum(w)
                 except ValueError:
                     count = 0
 
+                # Charge number of the species (e.g. -1 for electrons, +1 for singly charged ions)
+                charge_number = self.charge_by_name[species] / constants.q_e
+
                 # For z_hi, boundary_factor = 1
-                if i == 0:  # Electrons
-                    J_w_hi[0] -= count  # -= count * 1
-                else:       # Ions
-                    J_w_hi[0] += count  # += count * 1
+                J_w_hi[0] += charge_number * count
 
             # Add SEE contribution
             if self.SEE_obj is not None:
@@ -1710,6 +1723,67 @@ class Diagnostics1D:
         # Save the results
         self.J_w[0] = J_w_lo[0]
         self.J_w[1] = J_w_hi[0]
+
+    def update_Pw(self, species):
+        '''
+        Return kinetic energy [J] deposited at the left and right boundaries
+        by particles of this species scraped this step. Needs to be divided
+        by dt before being used, to get power [W].
+
+        If an SEE object is provided and this is the electron species, the
+        kinetic energy carried away by secondary electrons emitted from each
+        boundary this step is subtracted, since that energy is drawn from the
+        wall rather than deposited onto it.
+
+        Parameters
+        ----------
+        species: str
+            Name of species
+        '''
+        buffer = particle_containers.ParticleBoundaryBufferWrapper()
+        lev = 0
+        mass = self.mass_by_name[species]
+
+        Pw_lo = np.zeros(1)
+        Pw_hi = np.zeros(1)
+
+        # Process z_lo boundary (only on rank 0)
+        if comm.rank == 0:
+            try:
+                ux = np.concatenate(buffer.get_particle_scraped_this_step(species, 'z_lo', "ux", lev))
+                uy = np.concatenate(buffer.get_particle_scraped_this_step(species, 'z_lo', "uy", lev))
+                uz = np.concatenate(buffer.get_particle_scraped_this_step(species, 'z_lo', "uz", lev))
+                w  = np.concatenate(buffer.get_particle_scraped_this_step(species, 'z_lo', "w", lev))
+                Pw_lo[0] = 0.5 * mass * np.sum((ux**2 + uy**2 + uz**2) * w)
+            except ValueError:
+                pass
+
+            # Subtract energy carried away by secondary electrons emitted from this boundary
+            if self.SEE_obj is not None and species == self.electron_name:
+                Pw_lo[0] -= self.SEE_obj.SEE_current_this_step['z_lo'] * self.SEE_obj.SEE_energy_J
+
+        # Process z_hi boundary (only on rank num_proc - 1)
+        if comm.rank == num_proc - 1:
+            try:
+                ux = np.concatenate(buffer.get_particle_scraped_this_step(species, 'z_hi', "ux", lev))
+                uy = np.concatenate(buffer.get_particle_scraped_this_step(species, 'z_hi', "uy", lev))
+                uz = np.concatenate(buffer.get_particle_scraped_this_step(species, 'z_hi', "uz", lev))
+                w  = np.concatenate(buffer.get_particle_scraped_this_step(species, 'z_hi', "w", lev))
+                Pw_hi[0] = 0.5 * mass * np.sum((ux**2 + uy**2 + uz**2) * w)
+            except ValueError:
+                pass
+
+            # Subtract energy carried away by secondary electrons emitted from this boundary
+            if self.SEE_obj is not None and species == self.electron_name:
+                Pw_hi[0] -= self.SEE_obj.SEE_current_this_step['z_hi'] * self.SEE_obj.SEE_energy_J
+
+        # Broadcast results to all processes
+        comm.Bcast(Pw_lo, root=0)
+        comm.Bcast(Pw_hi, root=num_proc - 1)
+
+        # Save the results
+        self.Pw[species][0] = Pw_lo[0]
+        self.Pw[species][1] = Pw_hi[0]
 
     def update_E(self, direction: str):
         '''
@@ -2346,6 +2420,8 @@ class Diagnostics1D:
                 self.tr_P_C[species][tr_idx] = self.P_C[species]
             if temp_settings.get(f'P_I_{species}', False):
                 self.tr_P_I[species][tr_idx] = self.P_I[species]
+            if temp_settings.get(f'Pw_{species}', False):
+                self.tr_Pw[species][tr_idx] = self.Pw[species]
             if temp_settings.get(f'EDF_{species}', False):
                 self.tr_EDF[species][tr_idx] = self.Edf[species]
             for evdf_prefix in self.EVDF_PREFIXES:
@@ -2392,6 +2468,8 @@ class Diagnostics1D:
                 self.ta_P_C[species] += self.P_C[species]
             if temp_settings.get(f'P_I_{species}', False):
                 self.ta_P_I[species] += self.P_I[species]
+            if temp_settings.get(f'Pw_{species}', False):
+                self.ta_Pw[species] += self.Pw[species]
             if temp_settings.get(f'EDF_{species}', False):
                 self.ta_EDF[species] += self.Edf[species]
             for evdf_prefix in self.EVDF_PREFIXES:
@@ -2441,6 +2519,8 @@ class Diagnostics1D:
                 self.in_P_C[species][interval_idx] += self.P_C[species]
             if temp_settings.get(f'P_I_{species}', False):
                 self.in_P_I[species][interval_idx] += self.P_I[species]
+            if temp_settings.get(f'Pw_{species}', False):
+                self.in_Pw[species][interval_idx] += self.Pw[species]
             if temp_settings.get(f'EDF_{species}', False):
                 self.in_EDF[species][interval_idx] += self.Edf[species]
             for evdf_prefix in self.EVDF_PREFIXES:
@@ -2500,6 +2580,8 @@ class Diagnostics1D:
                        for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('P_C_')}
         self.tr_P_I = {key.replace('P_I_', ''): np.zeros((self.tr_coll[self.curr_diag_output], self.nz))
                        for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('P_I_')}
+        self.tr_Pw = {key.replace('Pw_', ''): np.zeros((self.tr_coll[self.curr_diag_output], 2))
+                      for key in self.master_diagnostic_dict['time_resolved'] if key.startswith('Pw_')}
 
         # Field diagnostics (not species-specific)
         self.tr_E = {
@@ -2555,6 +2637,8 @@ class Diagnostics1D:
                        for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('P_C_')}
         self.ta_P_I = {key.replace('P_I_', ''): np.zeros(self.nz)
                        for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('P_I_')}
+        self.ta_Pw = {key.replace('Pw_', ''): np.zeros(2)
+                      for key in self.master_diagnostic_dict['time_averaged'] if key.startswith('Pw_')}
 
         # Field diagnostics (not species-specific)
         self.ta_E = {
@@ -2605,6 +2689,8 @@ class Diagnostics1D:
                        for key in self.master_diagnostic_dict['interval'] if key.startswith('P_C_')}
         self.in_P_I = {key.replace('P_I_', ''): np.zeros((len(self.in_slices), self.nz))
                        for key in self.master_diagnostic_dict['interval'] if key.startswith('P_I_')}
+        self.in_Pw = {key.replace('Pw_', ''): np.zeros((len(self.in_slices), 2))
+                      for key in self.master_diagnostic_dict['interval'] if key.startswith('Pw_')}
 
         # Field diagnostics (not species-specific)
         self.in_E = {
@@ -2662,6 +2748,8 @@ class Diagnostics1D:
                     self.tr_P_C[species] *= self.charge_by_name[species] / self.dz
                 if prefix == 'P_I':
                     self.tr_P_I[species] *= self.charge_by_name[species] / self.dz
+                if prefix == 'Pw':
+                    self.tr_Pw[species] /= self.dt
 
             else:
                 if key == 'J_d':
@@ -2711,6 +2799,8 @@ class Diagnostics1D:
                     self.ta_P_C[species] *= self.charge_by_name[species] / self.dz / collections
                 if prefix == 'P_I':
                     self.ta_P_I[species] *= self.charge_by_name[species] / self.dz / collections
+                if prefix == 'Pw':
+                    self.ta_Pw[species] /= self.dt * collections
                 if prefix == 'EDF':
                     self.ta_EDF[species] /= collections
                 if prefix in self.EVDF_PREFIXES:
@@ -2788,6 +2878,11 @@ class Diagnostics1D:
                         if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
                             continue
                         self.in_P_I[species][ii] *= self.charge_by_name[species] / self.dz / collection_counts[ii]
+                if prefix == 'Pw':
+                    for ii in range(len(self.in_slices)):
+                        if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
+                            continue
+                        self.in_Pw[species][ii] /= self.dt * collection_counts[ii]
                 if prefix == 'EDF':
                     for ii in range(len(self.in_slices)):
                         if not self.in_coll_steps[self.curr_diag_output] or collection_counts[ii] == 0:
