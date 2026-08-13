@@ -125,6 +125,7 @@ class CapacitiveDischargeExample(object):
                     'Jx':  False,
                     'P_C': False,
                     'P_I': False,
+                    'Pw': True,
                     'EDF': False,
                     'ExDF': False,
                     'EyDF': False,
@@ -141,6 +142,7 @@ class CapacitiveDischargeExample(object):
                     'Jx':  False,
                     'P_C': False,
                     'P_I': False,
+                    'Pw': True,
                     'EDF': False,
                 },
                 'interval': {
@@ -154,6 +156,7 @@ class CapacitiveDischargeExample(object):
                     'Jx':  False,
                     'P_C': False,
                     'P_I': False,
+                    'Pw': True,
                     'EDF': False,
                 },
                 'properties': {
@@ -181,6 +184,7 @@ class CapacitiveDischargeExample(object):
                     'Jx':  False,
                     'P_C': False,
                     'P_I': False,
+                    'Pw': True,
                     'EDF': False,
                 },
                 'time_resolved': {
@@ -194,6 +198,7 @@ class CapacitiveDischargeExample(object):
                     'Jx':  False,
                     'P_C': False,
                     'P_I': False,
+                    'Pw': True,
                     'EDF': False,
                 },
                 'interval': {
@@ -207,6 +212,7 @@ class CapacitiveDischargeExample(object):
                     'Jx':  False,
                     'P_C': False,
                     'P_I': False,
+                    'Pw': True,
                     'EDF': False,
                 },
                 'properties': {
