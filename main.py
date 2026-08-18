@@ -2008,10 +2008,10 @@ class Diagnostics1D:
         # Report the temperature
         self.P_C[species] = P_data
 
-    def _get_time_averaged_power_from_buffer(self, species, direction):
+    def _get_time_averaged_power_from_buffer(self, species):
         '''
         Read and clear WarpX's power deposition tracking buffer for a species,
-        converting the raw accumulated buffer into a time-averaged power per
+        converting the raw accumulated buffer into time-averaged powers per
         unit length [W/m] suitable for accumulating into ta_P_C/ta_P_I.
 
         The buffer sums one w*q*v*E power sample per elapsed push step since
@@ -2022,34 +2022,40 @@ class Diagnostics1D:
         the elapsed time since the most recent diagnostic collection, since
         that elapsed time is exactly diag_time_averaging_steps * dt.
 
+        The buffer is read and cleared exactly once per call and all three
+        components are returned together. Do NOT call this more than once per
+        species per collection step: the first call clears the buffer, so a
+        second call would return zeros (this silently zeroed out ta_P_I
+        whenever ta_P_C was enabled, since each used to trigger its own
+        read+clear).
+
         Requires the species to have enable_power_deposition_tracking=True.
 
         Parameters
         ----------
         species: str
             Species name
-        direction: str
-            'x', 'y', or 'z' -- which power component to return ('z' for
-            capacitive/P_C, 'y' for inductive/P_I)
 
         Returns
         -------
-        np.ndarray
+        dict[str, np.ndarray]
             Time-averaged power per unit length for this collection window,
-            shape (self.nz,). All zeros if the species has no particles.
+            keyed by direction 'x', 'y', 'z' ('z' for capacitive/P_C, 'y'
+            for inductive/P_I), each of shape (self.nz,). All zeros if the
+            species has no particles (or on non-root ranks, since the
+            gathered buffer is only returned on rank 0).
         '''
         px, py, pz = self.power_wrapper.get(species, level=0, gather=True, normalize=False)
-        raw = {'x': px, 'y': py, 'z': pz}[direction]
 
         # Always clear so the next collection window starts fresh, regardless
         # of whether this window had any particles/data.
         self.power_wrapper.clear_buffers([species], level=0)
 
-        if raw is None:
-            return np.zeros(self.nz)
-
         elapsed_time = self.diag_time_averaging_steps * self.dt
-        return (raw / self.dz) * self.dt / elapsed_time
+        return {
+            direction: np.zeros(self.nz) if raw is None else (raw / self.dz) * self.dt / elapsed_time
+            for direction, raw in (('x', px), ('y', py), ('z', pz))
+        }
 
     def update_J_d(self):
         '''
@@ -2550,10 +2556,15 @@ class Diagnostics1D:
             for dir in ('z', 'y', 'x'):
                 if temp_settings.get(f'J{dir}_{species}', False):
                     getattr(self, f'ta_J{dir}')[species] += getattr(self, f'J{dir}')[species]
-            if temp_settings.get(f'P_C_{species}', False):
-                self.ta_P_C[species] += self._get_time_averaged_power_from_buffer(species, 'z')
-            if temp_settings.get(f'P_I_{species}', False):
-                self.ta_P_I[species] += self._get_time_averaged_power_from_buffer(species, 'y')
+            if temp_settings.get(f'P_C_{species}', False) or temp_settings.get(f'P_I_{species}', False):
+                # Single read: the power buffer is cleared on read, so P_C and
+                # P_I must come from the same call -- a second read this step
+                # would see the just-cleared buffer and return zeros.
+                power_from_buffer = self._get_time_averaged_power_from_buffer(species)
+                if temp_settings.get(f'P_C_{species}', False):
+                    self.ta_P_C[species] += power_from_buffer['z']
+                if temp_settings.get(f'P_I_{species}', False):
+                    self.ta_P_I[species] += power_from_buffer['y']
             if temp_settings.get(f'Pw_{species}', False):
                 self.ta_Pw[species] += self.Pw[species]
             if temp_settings.get(f'EDF_{species}', False):
