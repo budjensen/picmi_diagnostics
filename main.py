@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 import numpy as np
 import sys, os
 
-from pywarpx import fields, particle_containers, picmi, collision_trackers
+from pywarpx import fields, particle_containers, picmi, collision_trackers, power_deposition_trackers
 from mpi4py import MPI as mpi
 import time
 
@@ -370,8 +370,8 @@ class Diagnostics1D:
                         'N': True,
                         'W': True,
                         'Jz': True,
-                        'P_C': True,
-                        'P_I': True,
+                        'P_C': True,  # Must have enable_power_deposition_tracking=True on the species
+                        'P_I': True,  # Must have enable_power_deposition_tracking=True on the species
                         'Pw': True, # Power deposited to the walls by this species [W/m^2]
                         'EDF': True,
                         'ExDF': True,
@@ -827,7 +827,18 @@ class Diagnostics1D:
         self._Ey_wrapper = fields.EyFPWrapper()
         self._current_Ey_data = np.zeros(self.nz + 1)
 
-        self.VELOCITY_SYNC_PREFIXES = ('Jz_', 'Jy_', 'Jx_', 'P_C_', 'P_I_', 'W_', 'Wx_', 'Wy_', 'Wz_')
+        self.VELOCITY_SYNC_PREFIXES = ('Jz_', 'Jy_', 'Jx_', 'W_', 'Wx_', 'Wy_', 'Wz_')
+        # Power prefixes must be computed before velocity synchronization so that
+        # v^{n+1/2} is paired with E^n (both available at beforeEsolve time).
+        # Synchronizing first would push v by +dt/2 using E^n, adding a spurious
+        # O(dt) term to the J·E power estimate.
+        # Note: this ordering requirement is only needed for update_P_C/update_P_I
+        # (still used for time_resolved/interval P_C/P_I). The time_averaged P_C/P_I
+        # diagnostics instead read WarpX's own per-push power deposition tracking
+        # buffer (see _get_time_averaged_power_from_buffer), which captures the
+        # exact velocity/field values used in the true numerical push and needs
+        # no Python-side synchronization workaround.
+        self.POWER_PREFIXES = ('P_C_', 'P_I_')
 
         # Diagnostic updates
         self.FIELD_DISPATCH = {
@@ -858,6 +869,7 @@ class Diagnostics1D:
         self.EVDF_PREFIXES = ('ExDF', 'EyDF', 'EzDF')
 
         self.collision_wrapper = collision_trackers.CollisionBufferWrapper()
+        self.power_wrapper = power_deposition_trackers.PowerDepositionTrackerWrapper()
 
     def _calculate_N_collections(self):
         '''
@@ -1819,6 +1831,12 @@ class Diagnostics1D:
         shape, similar to what WarpX does. Minor differences in the two methods
         (e.g. I don't know exactly how WarpX interpolates for particles at the
         boundary) may lead to slight differences from the actual power.
+
+        Note: only used for time_resolved/interval P_I diagnostics. Time-averaged
+        P_I instead reads WarpX's own power deposition tracking buffer directly
+        (see _get_time_averaged_power_from_buffer), which is exact rather than
+        an approximate re-interpolation, and captures every push step instead
+        of only the sampled diagnostic steps.
         '''
         # Set up wrappers
         species_wrapper = particle_containers.ParticleContainerWrapper(species)
@@ -1906,6 +1924,12 @@ class Diagnostics1D:
         shape, similar to what WarpX does. Minor differences in the two methods
         (e.g. I don't know exactly how WarpX interpolates for particles at the
         boundary) may lead to slight differences from the actual power.
+
+        Note: only used for time_resolved/interval P_C diagnostics. Time-averaged
+        P_C instead reads WarpX's own power deposition tracking buffer directly
+        (see _get_time_averaged_power_from_buffer), which is exact rather than
+        an approximate re-interpolation, and captures every push step instead
+        of only the sampled diagnostic steps.
         '''
         # Set up wrappers
         species_wrapper = particle_containers.ParticleContainerWrapper(species)
@@ -1983,6 +2007,55 @@ class Diagnostics1D:
 
         # Report the temperature
         self.P_C[species] = P_data
+
+    def _get_time_averaged_power_from_buffer(self, species):
+        '''
+        Read and clear WarpX's power deposition tracking buffer for a species,
+        converting the raw accumulated buffer into time-averaged powers per
+        unit length [W/m] suitable for accumulating into ta_P_C/ta_P_I.
+
+        The buffer sums one w*q*v*E power sample per elapsed push step since
+        it was last cleared (charge is already included by WarpX). Converting
+        to a time-averaged power means: divide by cell size, then divide by
+        the number of elapsed steps since the most recent diagnostic
+        collection -- equivalently, multiply by the timestep and divide by
+        the elapsed time since the most recent diagnostic collection, since
+        that elapsed time is exactly diag_time_averaging_steps * dt.
+
+        The buffer is read and cleared exactly once per call and all three
+        components are returned together. Do NOT call this more than once per
+        species per collection step: the first call clears the buffer, so a
+        second call would return zeros (this silently zeroed out ta_P_I
+        whenever ta_P_C was enabled, since each used to trigger its own
+        read+clear).
+
+        Requires the species to have enable_power_deposition_tracking=True.
+
+        Parameters
+        ----------
+        species: str
+            Species name
+
+        Returns
+        -------
+        dict[str, np.ndarray]
+            Time-averaged power per unit length for this collection window,
+            keyed by direction 'x', 'y', 'z' ('z' for capacitive/P_C, 'y'
+            for inductive/P_I), each of shape (self.nz,). All zeros if the
+            species has no particles (or on non-root ranks, since the
+            gathered buffer is only returned on rank 0).
+        '''
+        px, py, pz = self.power_wrapper.get(species, level=0, gather=True, normalize=False)
+
+        # Always clear so the next collection window starts fresh, regardless
+        # of whether this window had any particles/data.
+        self.power_wrapper.clear_buffers([species], level=0)
+
+        elapsed_time = self.diag_time_averaging_steps * self.dt
+        return {
+            direction: np.zeros(self.nz) if raw is None else (raw / self.dz) * self.dt / elapsed_time
+            for direction, raw in (('x', px), ('y', py), ('z', pz))
+        }
 
     def update_J_d(self):
         '''
@@ -2273,6 +2346,15 @@ class Diagnostics1D:
             # Clear the wall eadf buffers for this collection
             self.clear_wall_eadf_buffers()
 
+            # Clear WarpX's power deposition tracking buffers so the first
+            # time-averaged collection of this diagnostic period isn't
+            # contaminated by power accumulated before diag_start (e.g. during
+            # a gap between diagnostic periods).
+            ta_settings = self.master_diagnostic_dict['time_averaged']
+            for species in self.species_names:
+                if ta_settings.get(f'P_C_{species}', False) or ta_settings.get(f'P_I_{species}', False):
+                    self.power_wrapper.clear_buffers([species], level=0)
+
         # Check if we need to save the electric field for the displacement current
         save_E_last_step = False
         if self.master_diagnostic_dict['time_resolved'].get('J_d', False) and (next_step - self.diag_start[self.curr_diag_output]) % self.diag_time_resolving_steps == 0:
@@ -2331,6 +2413,15 @@ class Diagnostics1D:
                     diags_this_step.add(key)
                     need_synchronization |= key.startswith(self.VELOCITY_SYNC_PREFIXES)
 
+        # Power diagnostics must use v^{n+1/2} paired with E^n (beforeEsolve state).
+        # Run them before velocity synchronization to avoid the +dt/2 bias.
+        for species in self.species_names:
+            for prefix, func in self.SPECIES_DISPATCH.items():
+                if prefix in self.POWER_PREFIXES:
+                    key = f'{prefix}{species}'
+                    if key in diags_this_step:
+                        func(species)
+
         # Synchronize, if necessary, to catch velocities up to positions
         if need_synchronization:
             self.sim_ext.warpx.synchronize_velocity_with_position()
@@ -2340,12 +2431,13 @@ class Diagnostics1D:
             if diag in diags_this_step:
                 func()
 
-        # Call particle diagnostics
+        # Call particle diagnostics (power already computed above)
         for species in self.species_names:
             for prefix, func in self.SPECIES_DISPATCH.items():
-                key = f'{prefix}{species}'
-                if key in diags_this_step:
-                    func(species)
+                if prefix not in self.POWER_PREFIXES:
+                    key = f'{prefix}{species}'
+                    if key in diags_this_step:
+                        func(species)
 
         # Save diagnostics to arrays
         if time_resolved:
@@ -2464,10 +2556,15 @@ class Diagnostics1D:
             for dir in ('z', 'y', 'x'):
                 if temp_settings.get(f'J{dir}_{species}', False):
                     getattr(self, f'ta_J{dir}')[species] += getattr(self, f'J{dir}')[species]
-            if temp_settings.get(f'P_C_{species}', False):
-                self.ta_P_C[species] += self.P_C[species]
-            if temp_settings.get(f'P_I_{species}', False):
-                self.ta_P_I[species] += self.P_I[species]
+            if temp_settings.get(f'P_C_{species}', False) or temp_settings.get(f'P_I_{species}', False):
+                # Single read: the power buffer is cleared on read, so P_C and
+                # P_I must come from the same call -- a second read this step
+                # would see the just-cleared buffer and return zeros.
+                power_from_buffer = self._get_time_averaged_power_from_buffer(species)
+                if temp_settings.get(f'P_C_{species}', False):
+                    self.ta_P_C[species] += power_from_buffer['z']
+                if temp_settings.get(f'P_I_{species}', False):
+                    self.ta_P_I[species] += power_from_buffer['y']
             if temp_settings.get(f'Pw_{species}', False):
                 self.ta_Pw[species] += self.Pw[species]
             if temp_settings.get(f'EDF_{species}', False):
@@ -2795,10 +2892,15 @@ class Diagnostics1D:
                                                  where=ta_mask[species]!=0)
                 if prefix in ('Jz', 'Jy', 'Jx'):
                     getattr(self, f'ta_{prefix}')[species] *= self.charge_by_name[species] / self.dz / collections
+                # P_C/P_I (time-averaged) are read from WarpX's power deposition
+                # tracking buffer, which already includes charge and is divided
+                # by cell size and elapsed steps at each collection (see
+                # _get_time_averaged_power_from_buffer). Only the average over
+                # collection windows within this diagnostic period remains.
                 if prefix == 'P_C':
-                    self.ta_P_C[species] *= self.charge_by_name[species] / self.dz / collections
+                    self.ta_P_C[species] /= collections
                 if prefix == 'P_I':
-                    self.ta_P_I[species] *= self.charge_by_name[species] / self.dz / collections
+                    self.ta_P_I[species] /= collections
                 if prefix == 'Pw':
                     self.ta_Pw[species] /= self.dt * collections
                 if prefix == 'EDF':

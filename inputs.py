@@ -463,6 +463,10 @@ class CapacitiveDischargeExample(object):
             initial_distribution=elec_distribution,
             warpx_save_particles_at_zhi = True,
             warpx_save_particles_at_zlo = True,
+            warpx_enable_power_deposition_tracking = (
+                self.diag_control['particle'][self.electron_name]['time_averaged'].get('P_C', False)
+                or self.diag_control['particle'][self.electron_name]['time_averaged'].get('P_I', False)
+            ),
         )
         self.ions = picmi.Species(
             particle_type='Ar', name=self.ion_name,
@@ -470,6 +474,10 @@ class CapacitiveDischargeExample(object):
             initial_distribution=ion_distribution,
             warpx_save_particles_at_zhi = True,
             warpx_save_particles_at_zlo = True,
+            warpx_enable_power_deposition_tracking = (
+                self.diag_control['particle'][self.ion_name]['time_averaged'].get('P_C', False)
+                or self.diag_control['particle'][self.ion_name]['time_averaged'].get('P_I', False)
+            ),
             warpx_add_real_attributes = {'orig_z': f'z',
                                          'orig_t': f't'}
         )
