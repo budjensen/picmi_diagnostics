@@ -660,7 +660,7 @@ class CapacitiveDischargeExample(object):
             collision_tracker = collision_trackers.CollisionBufferWrapper()
             collision_tracker.clear_buffers(active_coll_names, level=0)
 
-        callbacks.installafterstep(self.picmi_diagnostics.do_diagnostics)
+        callbacks.installbeforeEsolve(self.picmi_diagnostics.do_diagnostics)
 
         # Run the simulation until the end
         self.sim.step(self.max_steps - elapsed_steps + self.bonus_steps)
@@ -668,7 +668,7 @@ class CapacitiveDischargeExample(object):
         # Uninstall callbacks
         callbacks.uninstallcallback('beforeEsolve', self.picmi_diagnostics.do_diagnostics)
         if self.flag_SEE:
-            callbacks.uninstallcallback('afterstep', self.SEE_routine.do_SEE)
+            callbacks.uninstallcallback('beforeEsolve', self.SEE_routine.do_SEE)
 
 ##########################
 ### Execute Simulation ###
