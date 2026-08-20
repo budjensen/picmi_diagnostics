@@ -815,6 +815,17 @@ class Diagnostics1D:
         }
         self.phi = np.zeros(self.nz + 1)
         self.E_z_last_step = np.zeros(self.nz)
+        # Step number whose field E_z_last_step holds. None until the first
+        # save, so update_J_d can detect that no previous-step field exists
+        # (e.g. on the first diagnostic step of a fresh or restarted run).
+        self.E_z_last_step_num = None
+        # Deferred forward-difference J_d sample: when a J_d sample lands on a
+        # step with no valid previous-step field, update_J_d accumulates zeros
+        # and _defer_J_d_sample records this step's field plus the target
+        # buffers; _flush_pending_J_d completes the sample on the next step by
+        # adding E(n+1) - E(n). None, or a dict with 'step', 'E_n', 'targets'.
+        self.J_d_pending = None
+        self.J_d_is_fallback = False
 
     def _save_shared_variables(self):
         '''
@@ -2062,15 +2073,76 @@ class Diagnostics1D:
         Calculate the displacement current density. Needs be multiplied by
         constants.ep0 and divided by the time step before being used.
 
-        We use a backward difference to calculate the displacement current
-        and CANNOT use this implementation at the first time step.
+        We use a backward difference to calculate the displacement current,
+        which needs the field saved at the immediately preceding step. If that
+        field is unavailable (a J_d sample landing on the first diagnostic
+        step of a fresh or restarted run), a backward difference is impossible
+        and E_z_last_step still holds zeros -- the raw field would then be
+        recorded as J_d, an ep0*E/dt-scale value that poisons the whole
+        collection average. Accumulate zeros for now and set J_d_is_fallback
+        so do_diagnostics can complete the sample on the next step as a
+        forward difference (see _defer_J_d_sample / _flush_pending_J_d).
         '''
         # Save the electric field from the current time step, if not already done
         if not any(dict.get('E_z') for dict in self.master_diagnostic_dict.values()):
               self.E['z'] = self._current_Ez_data
 
+        # Check that E_z_last_step holds the field from the previous step
+        step = self.sim_ext.warpx.getistep(lev=0)
+        self.J_d_is_fallback = self.E_z_last_step_num != step - 1
+        if self.J_d_is_fallback:
+            self.J_d = np.zeros(self.nz)
+            return
+
         # Calculate the displacement current density
         self.J_d = self.E['z'] - self.E_z_last_step
+
+    def _defer_J_d_sample(self, step, time_resolved, time_averaged, interval, slice_idx):
+        '''
+        Schedule completion of a J_d sample that update_J_d recorded as zeros
+        because no previous-step field existed. Records the current field and
+        the buffers the zero sample went into; _flush_pending_J_d adds the
+        forward difference E(n+1) - E(n) into them on the next step.
+
+        Must be called before the accumulation block increments curr_tr. If
+        this step is the last of the diagnostic output, the files are written
+        before the next callback, so the sample cannot be completed and the
+        zero sample stands (the worst case).
+        '''
+        if step == self.diag_stop[self.curr_diag_output]:
+            return
+        targets = []
+        if time_resolved and self.master_diagnostic_dict['time_resolved'].get('J_d', False):
+            targets.append(('time_resolved', self.curr_tr))
+        if time_averaged and self.master_diagnostic_dict['time_averaged'].get('J_d', False):
+            targets.append(('time_averaged', None))
+        if interval and self.master_diagnostic_dict['interval'].get('J_d', False):
+            targets.append(('interval', slice_idx))
+        if targets:
+            self.J_d_pending = {'step': step,
+                                'E_n': self._current_Ez_data.copy(),
+                                'targets': targets}
+
+    def _flush_pending_J_d(self, step):
+        '''
+        Complete a deferred forward-difference J_d sample scheduled by
+        _defer_J_d_sample: add E(n+1) - E(n) into the buffers that received
+        the zero sample at step n. A pending sample that cannot be completed
+        (the simulation ended at step n) is dropped, leaving the zero sample.
+        '''
+        pending, self.J_d_pending = self.J_d_pending, None
+        if pending is None or step != pending['step'] + 1:
+            return
+        # Collective field read: safe because the pending state is identical
+        # on every rank, so all ranks reach this together
+        dE = self._Ez_wrapper[...] - pending['E_n']
+        for mode, idx in pending['targets']:
+            if mode == 'time_resolved':
+                self.tr_J_d[idx] += dE
+            elif mode == 'time_averaged':
+                self.ta_J_d += dE
+            elif mode == 'interval':
+                self.in_J_d[idx] += dE
 
     def calculate_edf(self, species: str):
         '''
@@ -2330,6 +2402,11 @@ class Diagnostics1D:
         Master function to perform diagnostics at each time step. Should be
         installed at least one step before the first diagnostic step.
         '''
+        # Complete any deferred forward-difference J_d sample from the
+        # previous step, before anything below can return early
+        if self.J_d_pending is not None:
+            self._flush_pending_J_d(self.sim_ext.warpx.getistep(lev=0))
+
         # leave if we are beyond a diagnostic collection
         if self.curr_diag_output >= self.num_outputs:
             return
@@ -2439,6 +2516,13 @@ class Diagnostics1D:
                     if key in diags_this_step:
                         func(species)
 
+        # If update_J_d had no previous-step field to difference against, it
+        # recorded zeros -- schedule a forward-difference completion for the
+        # next step (must precede the curr_tr increment below)
+        if 'J_d' in diags_this_step and self.J_d_is_fallback:
+            self._defer_J_d_sample(step, time_resolved, time_averaged, interval,
+                                   slice_idx if interval else None)
+
         # Save diagnostics to arrays
         if time_resolved:
             self.do_time_resolved_diagnostics(self.curr_tr)
@@ -2451,6 +2535,7 @@ class Diagnostics1D:
         # Save the electric field for the displacement current
         if save_E_last_step:
             np.copyto(self.E_z_last_step, self._current_Ez_data)
+            self.E_z_last_step_num = step
 
         # Finalize and save diagnostics
         if step == self.diag_stop[self.curr_diag_output]:
